@@ -52,6 +52,9 @@ odpali serwer + otworzy dashboard w przeglądarce pod
    liczby próbek (n≥5 = korekta ma sens).
 5. **Trwały stan** (`state.py`, `StateStore`) wykrywa zmianę werdyktu
    między uruchomieniami - na dysku, przetrwa restart procesu.
+6. **Cena, wolumen i trend** - dashboard pokazuje ostatnią cenę (z
+   jednostką/walutą), zmianę % w okresie, wolumen (ostatni + średni) i
+   linię trendu (`trm`) nałożoną na wykres ceny.
 
 ## Lekcje z Synoptyka zastosowane w v3
 
@@ -81,173 +84,34 @@ dla systemów TIMDR. Wszystkie zaadresowano tu od początku, świadomie:
   ukrywana - brak plakietki czytałby się jako "wszystko OK", co byłoby
   fałszywe przy braku danych.
 
-## Znalezione i naprawione błędy
+## Uwagi techniczne (istotne przy dalszym rozwoju)
 
-Zgodnie z metodyką całego tego zestawu narzędzi (nic nie jest uznawane
-za gotowe bez faktycznego uruchomienia i reprodukcji na realistycznych
-danych) - poniżej każdy błąd znaleziony podczas budowy v3.
-
-### 1. `defect()` fałszywie flagował ~20% czystego szumu jako "defekty"
-
-Dosłowna definicja ze szkieletu TIMDR (`próg = 0.3 × rozstęp cen w
-oknie`) porównywała próg skoku do rozstępu **poziomów** ceny, nie do
-rozstępu **różnic** między kolejnymi barami. Dla błądzenia losowego te
-dwie wielkości są tego samego rzędu - więc próg 0.3× był mniejszy niż
-typowy normalny ruch, i ok. 20% czystego szumu (zweryfikowano na 500
-próbkach czystego random walk) zostało błędnie oznaczone jako "defekt".
-**Naprawiono**: próg liczony teraz z rozstępu różnic (nie poziomów),
-`jump_factor` podniesiony do 3.0, dodana bezwzględna podłoga. Po
-naprawie: fałszywe alarmy spadły do 0.2%, prawdziwe wstrzyknięte skoki
-nadal wykrywane. Regresja: `test_defect_rzadki_na_zwyklym_szumie_random_walk`.
-
-### 2. Kaskada: `is_active` liczone ze średniej rezonansu, nie ze szczytu
-
-Rezonans to z natury krótkotrwałe zdarzenie (kilka barów). Uśrednienie
-go po całym oknie 15-barowym rozcieńczało nawet wyraźny, poprawnie
-wykryty szok poniżej progu (średnia=0.244 przy progu=0.333, mimo że
-szczyt=0.667). **Naprawiono**: `is_active` liczone teraz z maksimum
-(szczytu) w oknie, zgodnie z istniejącą semantyką `strong_idx` w
-`resonance()`.
-
-### 3. Kaskada: kierunek liczony z opóźnionego `flow`/`trm`
-
-Kierunek ruchu w danym ogniwie liczono z `flow` (pochodnej wygładzonej
-`trm`, okno k=5) dokładnie w barze szczytu rezonansu - ale `trm`
-potrzebuje kilku barów PO szoku, zanim mediana ruchoma "zobaczy" nowy
-poziom. Efekt: dla tego samego, jednoznacznie kierunkowego szoku różne
-ogniwa łańcucha pokazywały sprzeczne kierunki (np. "Surowce: spadkowa"
-vs "Energetyka/Przemysł: wzrostowa" dla tego samego szoku w górę).
-**Naprawiono**: kierunek liczony teraz z surowej zmiany ceny w małym
-oknie wokół szczytu (`cena[szczyt+2] - cena[szczyt-2]`), bez opóźnienia
-wygładzania.
-
-### 4. Dwa architektoniczne odrzucenia modelu kaskady (na żądanie użytkownika)
-
-- **v1 → v2**: pierwotny łańcuch kosztowy sektorów
-  (surowce→energetyka→przemysł→...→technologia) został **całkowicie
-  zastąpiony** (nie uzupełniony) łańcuchem przepływu kapitału
-  (surowce→waluty→obligacje→indeksy→sektory→akcje) - wyraźna decyzja
-  użytkownika: "To ma ZASTĄPIĆ kaskadę sektorową".
-- **v2-pierwsza-próba → v2-finalna**: pierwsza implementacja łańcucha
-  kapitałowego nadal ważyła wpływ ogniw stałą tabelą "★ siła wpływu"
-  (1-5 gwiazdek) - odziedziczoną koncepcyjnie z odrzuconego modelu
-  sektorowego. Użytkownik to jednoznacznie odrzucił: *"mówimy o
-  przepływie finansów nie szkolnej definicji ważności"*. **Naprawiono**:
-  wprowadzono `_flow_intensity()` - realną, zmierzoną miarę
-  (`zmiana_ceny% × wolumen_względny`) zamiast opinii o "ważności"
-  sektora. `STAGE_TIMING` (dawniej `STAGE_INFLUENCE`) niesie już tylko
-  informacyjne opóźnienie/charakter reakcji, nie wchodzi do wzoru wagi.
-
-### 5. Pakiet TIMDR nie niósł surowej ceny, tylko wygładzoną
-
-Oryginalny moduł-glue dostarczony przez użytkownika budował `TimdrPacket`
-tylko z `trm` (wygładzoną ceną), `flow`, `twist` itd. - nigdy z surową
-ceną. RSI i backtest liczone na wygładzonej serii dają błędne,
-opóźnione wyniki. **Naprawiono**: dodano `PriceSignal` i wymagany
-parametr `price_signal` do `TimdrPacket`, `TimdrEngine.compute_packet()`
-przekazuje surową cenę obok wygładzonej. Regresja:
-`test_packet_ma_surowa_cene_nie_tylko_wygladzona`.
-
-### 6. `przetworz_sygnaly()` zwracał tylko liczby, nie indeksy/cenę
-
-Podczas budowy dashboardu okazało się, że funkcja zwracała tylko
-`n_anomaly`/`n_defect`/`n_twist` (liczby przez `len()`), nigdy same
-indeksy ani surową serię cen - dashboard nie miałby czym narysować
-markerów na wykresie ani samej linii ceny. **Naprawiono**: dodano
-`anomalies_idx`, `defect_idx`, `twist_idx` (listy indeksów) i `x`
-(surowa cena) do zwracanego słownika.
-
-### 7. `/api/state/clear` - błąd systemu plików nie powinien wywalać żądania
-
-`os.remove()` w `StateStore.clear()`/`PredictionLog.clear()` może rzucić
-`OSError`/`PermissionError` (zablokowany plik, brak uprawnień). Pierwotnie
-propagowało się to jako wyjątek i 500 na endpoincie. **Naprawiono**:
-`try/except OSError` z widocznym ostrzeżeniem na konsoli
-(`[state.py] UWAGA: ...`) i zwróceniem `False` zamiast wywalenia całego
-żądania - błąd jest widoczny, ale nieusunięcie jednego pliku stanu nie
-powinno być fatalne dla reszty API.
-
-### 8. KRYTYCZNY: port 5060 jest na liście "zakazanych portów" przeglądarek
-
-Podczas weryfikacji `dashboard.html` na żywo (Node.js + prawdziwy
-`fetch()`, ta sama metoda co przy innych dashboardach TIMDR w tym
-zestawie) odkryto, że **port 5060 jest zablokowany przez samą
-specyfikację Fetch** (używany przez SIP, razem z 5061, 6000, 6566 i
-kilkoma innymi jest na liście "bad ports"/"restricted ports"
-respektowanej zarówno przez przeglądarki - Chrome zwraca
-`net::ERR_UNSAFE_PORT` - jak i przez `fetch()` w Node.js/undici, z tym
-samym błędem "bad port"). Dashboard uruchomiony na porcie 5060 **nigdy
-nie zdołałby wykonać ani jednego zapytania do własnego API** w żadnej
-prawdziwej przeglądarce - to nie był tylko artefakt tego środowiska
-testowego, tylko realny błąd, który ujawniłby się dopiero po dostarczeniu
-użytkownikowi. **Naprawiono**: API i dashboard przełączone na port
-**8060** (bezpieczny, spoza listy zakazanych portów). Zweryfikowano
-end-to-end: pełny przepływ `dashboard.html` → `fetch()` → Flask →
-JSON → renderowanie kart/wykresu/kaskady/panelu uczenia działa
-poprawnie na 8060.
-
-### 9. Brakowało ceny akcji i wykresu trendu w API/dashboardzie
-
-`przetworz_sygnaly()` zwracała `x` (surową cenę, do rysowania linii i
-markerów), ale nigdy pojedynczej, czytelnej wartości "ostatnia cena" ani
-jej zmiany procentowej w okresie - dashboard nie pokazywał tego jako
-osobnej karty, mimo że to najbardziej podstawowa informacja, jakiej
-użytkownik szuka najpierw. Wykres pokazywał samą surową cenę z
-markerami anomalii/defektów, bez żadnej linii trendu - mimo że silnik
-TIMDR i tak już liczy `trm` (trend reference mean, mediana krocząca
-k=5) na potrzeby `flow`/`twist`/`resonance`, więc trend był policzony,
-tylko nigdzie nie pokazywany. **Naprawiono**: `przetworz_sygnaly()`
-zwraca teraz `last_price`, `price_change_pct` (zmiana % między
-pierwszą a ostatnią barą okresu) i `trend` (pełna seria `trm`).
-Dashboard dostał nową kartę "Cena" (z podpisem zmiany %) oraz drugą
-linię na wykresie ceny (`drawChart` obsługuje teraz `extraLines`) -
-zielona linia trendu nałożona na niebieską linię surowej ceny.
-Zweryfikowano end-to-end na żywym serwerze: pole `trend` ma tyle samo
-punktów co `x`, karta "Cena" renderuje się poprawnie z realną wartością
-i znakiem zmiany %.
-
-### 10. Wykres ceny "wyłamywał się" poza kartę po zmianie rozmiaru okna
-
-`drawChart()` mierzył dostępną szerokość raz, w momencie wywołania
-`analyze()`, i nigdy nie przerysowywał wykresu później. Jeśli
-użytkownik zmniejszył okno przeglądarki PO analizie, canvas zachowywał
-stary, szerszy rozmiar ustawiony inline w JS - a `.panel` nie miał
-`overflow:hidden`, więc linia wykresu wizualnie wystawała poza kartę i
-poza stronę, zamiast się przyciąć. **Naprawiono dwutorowo**: (1)
-`.panel{overflow:hidden}` jako siatka bezpieczeństwa - wykres nigdy
-więcej nie może wizualnie "wyłamać się" poza swoją kartę, niezależnie
-od błędów w liczeniu rozmiaru; (2) dodano nasłuch na `resize` okna
-(z debounce 150ms), który przerysowuje ostatni wykres z aktualnym
-rozmiarem - bez ponownego zapytania do `/api/analyze` (dane są już w
-pamięci, patrz `lastChartOpts`). Zweryfikowano: po wywołaniu zdarzenia
-`resize` canvas jest przerysowywany, a licznik wywołań `fetch()` się
-nie zmienia (potwierdza brak zbędnego zapytania sieciowego).
-
-### 11. Cena nie miała waluty/jednostki ani wolumenu
-
-Karta "Cena" pokazywała samą liczbę (np. `84.93`) bez informacji, w
-jakiej walucie i jakiej jednostce fizycznej - dla kontraktów
-terminowych (np. `CL=F` - ropa WTI) to istotna różnica (USD za baryłkę,
-nie "po prostu 84.93"). Wolumen w ogóle nie docierał do API, mimo że
-był w OHLCV od początku. **Naprawiono**: `cascade.py` dostał
-`currency_unit_for_ticker()` - heurystykę z sufiksu tickera (`=X` pary
-walutowe → kwotowane w drugiej walucie, `.WA` → PLN, `-USD` → USD,
-`=F` → USD + jednostka fizyczna ze słownika dla znanych symboli
-(baryłka/uncja/MMBtu/buszel), `^` → punkty indeksowe bez waluty,
-domyślnie USD). **Jawnie oznaczone jako przybliżenie**: to heurystyka z
-konwencji nazewnictwa Yahoo Finance, NIE autorytatywne dane pobrane z
-API - `yfinance.download()` w tym pipeline zwraca tylko OHLCV, nie
-metadane instrumentu; osobne zapytanie o `Ticker.info` dla każdej
-analizy byłoby kolejnym wolnym wywołaniem sieciowym per żądanie (patrz
-lekcja #3 ze Synoptyka - nie pobieraj bez potrzeby). `api.py` dostał
-`last_volume`/`avg_volume` z tej samej ramki OHLCV, którą i tak już
-pobiera. Dashboard: nowa karta "Wolumen", karta "Cena" pokazuje teraz
-jednostkę (np. "116.35 USD/baryłka (ropa WTI)"). Dodano trwałe testy
-regresyjne (`test_cascade.py` - 8 nowych testów `currency_unit_for_*`)
-oraz **nowy plik `test_api.py`** (wcześniej nie istniał - `api.py` był
-dotąd testowany tylko ręcznie; teraz ma 6 testów pytest z zamockowanym
-yfinance, w tym regresję na obecność `last_price`/`last_volume`/
-`currency`/`price_unit_label` w odpowiedzi).
+- **Kalibracja `defect()`**: próg liczony jest z rozstępu RÓŻNIC między
+  kolejnymi barami (nie z rozstępu poziomów ceny - dosłowna definicja ze
+  szkieletu TIMDR fałszywie flagowała ~20% czystego szumu jako "defekt",
+  bo dla błądzenia losowego te dwie wielkości są tego samego rzędu).
+  Aktualne stałe: `jump_factor=3.0` plus bezwzględna podłoga
+  (`min_floor_frac`) na płaskich/rzadkich danych. Przy dostrajaniu
+  czułości zmieniaj te dwie stałe, nie samą formę progu.
+- **RSI i backtest liczone są na SUROWEJ cenie (`packet.price`), nie na
+  `trm`.** `trm` (mediana krocząca k=5) to wejście dla `flow`/`twist`/
+  `resonance` - do tego został zaprojektowany, ale nie nadaje się do
+  RSI/backtestu (opóźnia i tłumi realną zmienność). Przy dodawaniu
+  nowych sygnałów świadomie wybieraj, która seria pasuje do
+  zastosowania.
+- **Kaskada waży ogniwa zmierzonym przepływem kapitału
+  (`_flow_intensity` = zmiana ceny % × wolumen względny), nie z góry
+  przypisaną "ważnością" sektora.** `STAGE_TIMING` niesie wyłącznie
+  informacyjne opóźnienie/charakter reakcji - nie wchodzi do wzoru
+  wagi. Jeśli w przyszłości trzeba dostroić wpływ poszczególnych ogniw,
+  rób to przez `FLOW_INTENSITY_REFERENCE` (kalibracja normalizacji), nie
+  przez dodawanie stałych wag.
+- **Port 8060, celowo NIE 5060.** Port 5060 (SIP) jest na liście
+  "zakazanych portów" przeglądarek i `fetch()` (Node/undici) - dashboard
+  uruchomiony na nim nigdy nie połączyłby się z własnym API w realnej
+  przeglądarce (`ERR_UNSAFE_PORT`). Przy ewentualnej zmianie portu
+  sprawdź listę zakazanych portów (m.in. 1, 7, 9, 5060, 5061, 6000,
+  6666-6669, 6697).
 
 ## Struktura plików
 
@@ -283,8 +147,7 @@ python -m pytest -q
 pośrednio przez `pipeline`, `pipeline`, `cascade`, `data_loader`, `state`,
 `api`). Wszystkie testy `data_loader`/`api` mockują `yfinance` (brak
 zależności od sieci przy testowaniu) - realne pobieranie danych giełdowych
-wymaga
-połączenia internetowego przy faktycznym uruchomieniu.
+wymaga połączenia internetowego przy faktycznym uruchomieniu.
 
 ## Ograniczenia
 
@@ -296,3 +159,7 @@ połączenia internetowego przy faktycznym uruchomieniu.
 - Samo-uczenie zaczyna dawać sensowne korekty dopiero po zgromadzeniu
   ≥5 potwierdzonych predykcji na dany horyzont (przy analizie raz
   dziennie to zajmuje tydzień+).
+- Waluta/jednostka ceny (`currency`, `price_unit_label`) to heurystyka z
+  sufiksu tickera (konwencja Yahoo Finance), NIE dane pobrane z API -
+  `yfinance.download()` nie zwraca metadanych instrumentu. Dla
+  nietypowych tickerów domyślnie zakłada USD.
