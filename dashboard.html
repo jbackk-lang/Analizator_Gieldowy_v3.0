@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Analizator Giełdowy v3 — TIMDR</title>
+<style>
+  :root{
+    --bg: #0e1420; --panel: #161e2d; --panel-border: #253248;
+    --text: #e6edf5; --muted: #8393ab;
+    --ok: #35d488; --warn: #f5a623; --crit: #ef4b5f; --accent: #4f9dff; --violet:#a78bfa;
+    --mono: "Consolas","SFMono-Regular",Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI",Arial,sans-serif; padding:20px 28px 40px; }
+  header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap; gap:10px; }
+  header h1{ font-size:20px; margin:0; font-weight:600; }
+  header .sub{ color:var(--muted); font-size:12px; font-family:var(--mono); }
+  .status-pill{ padding:5px 14px; border-radius:20px; font-size:12px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
+  .status-ok{ background:rgba(53,212,136,.15); color:var(--ok); border:1px solid var(--ok); }
+  .status-warn{ background:rgba(245,166,35,.15); color:var(--warn); border:1px solid var(--warn); }
+  .status-crit{ background:rgba(239,75,95,.15); color:var(--crit); border:1px solid var(--crit); }
+
+  .disclaimer{ background:rgba(239,75,95,.08); border:1px solid var(--crit); color:#ffb4c0; border-radius:8px; padding:10px 14px; font-size:12px; margin-bottom:16px; line-height:1.5; }
+  .disclaimer b{ color:#fff; }
+
+  .controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:12px 16px; margin-bottom:14px; }
+  .controls label{ font-size:12px; color:var(--muted); margin-right:4px; }
+  .controls input[type=text], .controls select{ background:#0c121d; border:1px solid var(--panel-border); color:var(--text); border-radius:6px; padding:6px 8px; font-size:12px; }
+  .controls input[type=text]{ width:140px; }
+  .controls select#inTickerList{ max-width:230px; }
+  .controls button{ background:var(--accent); color:#04101f; border:none; border-radius:6px; padding:8px 16px; font-weight:700; font-size:12px; cursor:pointer; }
+  .controls button:hover{ filter:brightness(1.1); }
+  .controls button.secondary{ background:#232f45; color:var(--text); border:1px solid var(--panel-border); }
+  .controls .checkline{ display:flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); }
+  #err{ color:var(--crit); font-size:12px; font-family:var(--mono); margin-left:auto; white-space:pre-wrap; max-width:420px; }
+  .note{ font-size:12px; color:var(--muted); margin:2px 0 16px 2px; font-style:italic; }
+
+  .state-alert{ display:none; background:rgba(167,139,250,.1); border:1px solid var(--violet); color:#d9ccff; border-radius:8px; padding:10px 14px; font-size:12px; margin-bottom:14px; }
+  .state-alert.active{ display:block; }
+
+  .cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:18px; }
+  .card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:16px 18px; }
+  .card .label{ font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
+  .card .value{ font-size:22px; font-weight:700; margin-top:6px; font-family:var(--mono); }
+  .card .sub{ font-size:10px; color:var(--muted); margin-top:4px; }
+
+  .panel{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:16px 18px; margin-bottom:14px; overflow:hidden; }
+  .panel h2{ font-size:13px; margin:0 0 10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:600; }
+  .legend{ font-size:10px; color:var(--muted); margin-bottom:6px; }
+  .legend span{ margin-right:12px; }
+  .legend .dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; }
+  canvas{ max-width:100%; width:100%; display:block; }
+  footer{ margin-top:20px; color:var(--muted); font-size:11px; font-family:var(--mono); }
+  .findings{ font-size:12px; line-height:1.7; }
+  .findings .warn-row{ color: var(--warn); }
+  .findings .crit-row{ color: var(--crit); }
+  .findings .ok-row{ color: var(--ok); }
+
+  .cascade-chain{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  .cascade-stage{ background:#0c121d; border:1px solid var(--panel-border); border-radius:8px; padding:8px 12px; font-size:11px; min-width:90px; }
+  .cascade-stage.active{ border-color:var(--warn); background:rgba(245,166,35,.08); }
+  .cascade-stage .name{ font-weight:700; text-transform:uppercase; letter-spacing:.4px; font-size:10px; color:var(--muted); }
+  .cascade-stage.active .name{ color:var(--warn); }
+  .cascade-stage .arrow{ color:var(--muted); }
+  .cascade-alerts{ font-size:12px; line-height:1.8; }
+  .badge{ display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; margin-left:6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📈 Analizator Giełdowy v3</h1>
+    <div class="sub">TIMDR (trm/flow/twist/rhythm/anomalie/defekt/rezonans) + kaskada przepływu kapitału</div>
+  </div>
+  <div id="statusPill" class="status-pill status-ok">brak danych</div>
+</header>
+
+<div class="disclaimer">
+  <b>Zastrzeżenie:</b> narzędzie badawczo-edukacyjne. NIE jest doradztwem inwestycyjnym ani rekomendacją.
+  Wszystkie metryki to statystyczne odchylenia względem lokalnej historii sygnału, nie porady finansowe.
+  Decyzje inwestycyjne podejmuj na własną odpowiedzialność.
+</div>
+
+<div class="state-alert" id="stateAlert"></div>
+
+<div class="controls">
+  <label>ticker</label>
+  <select id="inTickerList">
+    <optgroup label="Waluty (Forex) - PLN">
+      <option value="EURPLN=X" selected>EUR/PLN</option>
+      <option value="USDPLN=X">USD/PLN</option>
+      <option value="GBPPLN=X">GBP/PLN</option>
+      <option value="CHFPLN=X">CHF/PLN</option>
+      <option value="JPYPLN=X">JPY/PLN</option>
+      <option value="CZKPLN=X">CZK/PLN</option>
+      <option value="NOKPLN=X">NOK/PLN</option>
+      <option value="SEKPLN=X">SEK/PLN</option>
+      <option value="HUFPLN=X">HUF/PLN</option>
+    </optgroup>
+    <optgroup label="Waluty (Forex) - pary główne">
+      <option value="EURUSD=X">EUR/USD</option>
+      <option value="GBPUSD=X">GBP/USD</option>
+      <option value="USDJPY=X">USD/JPY</option>
+      <option value="USDCHF=X">USD/CHF</option>
+      <option value="USDCAD=X">USD/CAD</option>
+      <option value="AUDUSD=X">AUD/USD</option>
+      <option value="NZDUSD=X">NZD/USD</option>
+    </optgroup>
+    <optgroup label="Waluty (Forex) - krzyżowe">
+      <option value="EURGBP=X">EUR/GBP</option>
+      <option value="EURJPY=X">EUR/JPY</option>
+      <option value="EURCHF=X">EUR/CHF</option>
+      <option value="EURCAD=X">EUR/CAD</option>
+      <option value="EURAUD=X">EUR/AUD</option>
+      <option value="GBPJPY=X">GBP/JPY</option>
+      <option value="CHFJPY=X">CHF/JPY</option>
+      <option value="AUDJPY=X">AUD/JPY</option>
+      <option value="CADJPY=X">CAD/JPY</option>
+    </optgroup>
+    <optgroup label="Waluty (Forex) - egzotyczne">
+      <option value="USDCNY=X">USD/CNY</option>
+      <option value="USDTRY=X">USD/TRY</option>
+      <option value="USDMXN=X">USD/MXN</option>
+      <option value="USDZAR=X">USD/ZAR</option>
+      <option value="USDINR=X">USD/INR</option>
+      <option value="USDNOK=X">USD/NOK</option>
+      <option value="USDSEK=X">USD/SEK</option>
+    </optgroup>
+    <optgroup label="Kryptowaluty">
+      <option value="BTC-USD">Bitcoin (BTC-USD)</option>
+      <option value="ETH-USD">Ethereum (ETH-USD)</option>
+      <option value="SOL-USD">Solana (SOL-USD)</option>
+    </optgroup>
+    <optgroup label="Surowce">
+      <option value="GC=F">Złoto (GC=F)</option>
+      <option value="SI=F">Srebro (SI=F)</option>
+      <option value="CL=F">Ropa WTI (CL=F)</option>
+      <option value="NG=F">Gaz ziemny (NG=F)</option>
+    </optgroup>
+    <optgroup label="Indeksy">
+      <option value="^GSPC">S&amp;P 500 (^GSPC)</option>
+      <option value="^DJI">Dow Jones (^DJI)</option>
+      <option value="^NDX">Nasdaq 100 (^NDX)</option>
+      <option value="^GDAXI">DAX (^GDAXI)</option>
+      <option value="WIG20.WA">WIG20 (WIG20.WA)</option>
+    </optgroup>
+    <optgroup label="Akcje - USA">
+      <option value="AAPL">Apple (AAPL)</option>
+      <option value="MSFT">Microsoft (MSFT)</option>
+      <option value="GOOGL">Google / Alphabet A (GOOGL)</option>
+      <option value="GOOG">Google / Alphabet C (GOOG)</option>
+      <option value="AMZN">Amazon (AMZN)</option>
+      <option value="NVDA">Nvidia (NVDA)</option>
+      <option value="TSLA">Tesla (TSLA)</option>
+      <option value="META">Meta (META)</option>
+    </optgroup>
+    <optgroup label="Akcje - GPW">
+      <option value="PKN.WA">Orlen (PKN.WA)</option>
+      <option value="PKO.WA">PKO BP (PKO.WA)</option>
+      <option value="KGH.WA">KGHM (KGH.WA)</option>
+      <option value="CDR.WA">CD Projekt (CDR.WA)</option>
+      <option value="PZU.WA">PZU (PZU.WA)</option>
+      <option value="ALE.WA">Allegro (ALE.WA)</option>
+    </optgroup>
+    <option value="__custom__">✎ inny (wpisz ręcznie poniżej)</option>
+  </select>
+  <input id="inTicker" type="text" value="EURPLN=X" title="Ticker (Yahoo Finance) - można wpisać ręcznie">
+  <label>okres</label>
+  <select id="inPeriod">
+    <option value="6mo">6 mies.</option>
+    <option value="1y" selected>1 rok</option>
+    <option value="2y">2 lata</option>
+    <option value="5y">5 lat</option>
+  </select>
+  <span class="checkline"><input type="checkbox" id="inCascade" checked> <label for="inCascade" style="margin:0;">kaskada kapitału</label></span>
+  <button id="btnAnalyze">▶ Analizuj</button>
+  <button id="btnClearState" class="secondary">🗑 Wyczyść historię tickera</button>
+  <span id="err"></span>
+</div>
+<div class="note" id="dataNote">Wpisz ticker i kliknij "Analizuj".</div>
+
+<div class="cards" id="cardsBox"></div>
+
+<div class="panel">
+  <h2>Cena + trend (TRM)</h2>
+  <div class="legend">
+    <span><i class="dot" style="background:#4f9dff"></i>cena zamknięcia</span>
+    <span><i class="dot" style="background:#35d488"></i>trend (mediana krocząca)</span>
+    <span><i class="dot" style="background:#ef4b5f"></i>anomalie</span>
+    <span><i class="dot" style="background:#a78bfa"></i>defekty (skoki)</span>
+  </div>
+  <canvas id="chartPrice" height="240"></canvas>
+</div>
+
+<div class="panel">
+  <h2>Kaskada przepływu kapitału (surowce → waluty → obligacje → indeksy → sektory → akcje)</h2>
+  <div class="cascade-chain" id="cascadeChain"></div>
+  <div class="cascade-alerts" id="cascadeAlerts">—</div>
+</div>
+
+<div class="panel">
+  <h2>Samo-uczenie (predykcja vs rzeczywistość)</h2>
+  <div id="learningBox" style="font-size:12px; line-height:1.7;">—</div>
+</div>
+
+<div class="panel">
+  <h2>Wyniki analizy</h2>
+  <div class="findings" id="findingsBox">—</div>
+</div>
+
+<footer>Analizator Giełdowy v3 · lokalne API (Flask, 127.0.0.1:8060) · wykresy Canvas 2D, bez CDN</footer>
+
+<script>
+'use strict';
+const COLORS = { ok:'#35d488', warn:'#f5a623', crit:'#ef4b5f', accent:'#4f9dff', violet:'#a78bfa', muted:'#8393ab', grid:'#1c2536', axis:'#8393ab' };
+
+function showError(msg){
+  document.getElementById('err').textContent = msg;
+  if (msg) console.error('[dashboard]', msg);
+}
+function fmt(x, digits){
+  if (x === null || x === undefined || Number.isNaN(x)) return '—';
+  return Number(x).toFixed(digits === undefined ? 2 : digits);
+}
+function fmtVolume(x){
+  if (x === null || x === undefined || Number.isNaN(x)) return '—';
+  const n = Math.round(x);
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n/1e9).toFixed(2) + ' mld';
+  if (abs >= 1e6) return (n/1e6).toFixed(2) + ' mln';
+  if (abs >= 1e3) return (n/1e3).toFixed(1) + ' tys.';
+  return String(n);
+}
+
+function drawChart(canvas, opts){
+  if (!canvas) return;
+  // Szerokość liczona z faktycznie wyrenderowanego rozmiaru rodzica
+  // (getBoundingClientRect, nie clientWidth) - dokładniejsza przy
+  // ułamkowych pikselach/zoomie. Naprawiony bug: przy zmianie rozmiaru
+  // okna PO narysowaniu wykresu (np. użytkownik zmniejszył okno)
+  // canvas trzymał stary, szerszy rozmiar ustawiony inline w JS -
+  // .panel nie miał overflow:hidden, więc wykres wizualnie "wyłamywał
+  // się" poza kartę. Naprawiono dwutorowo: (1) .panel ma teraz
+  // overflow:hidden jako siatkę bezpieczeństwa, (2) nasłuch na resize
+  // (patrz na dole pliku) przerysowuje ostatni wykres z aktualnym
+  // rozmiarem, więc canvas już nie zostaje "w tyle" za layoutem.
+  const rect = canvas.parentElement ? canvas.parentElement.getBoundingClientRect() : null;
+  const parentWidth = rect && rect.width ? rect.width : (canvas.parentElement ? canvas.parentElement.clientWidth : 400);
+  const cssWidth = Math.max(200, Math.floor(parentWidth) || 400);
+  const cssHeight = opts.height || 200;
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.style.width = cssWidth + 'px';
+  canvas.style.height = cssHeight + 'px';
+  canvas.width = Math.round(cssWidth * dpr);
+  canvas.height = Math.round(cssHeight * dpr);
+
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+  const n = (opts.x || []).length;
+  const pad = { left: 52, right: 10, top: 8, bottom: 16 };
+  const plotW = Math.max(10, cssWidth - pad.left - pad.right);
+  const plotH = Math.max(10, cssHeight - pad.top - pad.bottom);
+
+  if (n === 0){
+    ctx.fillStyle = COLORS.muted; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('brak danych', cssWidth / 2, cssHeight / 2);
+    return;
+  }
+
+  const idxAt = i => pad.left + (n <= 1 ? plotW/2 : (i/(n-1))*plotW);
+
+  const extraLines = opts.extraLines || [];
+  const allY = opts.x.filter(v => isFinite(v))
+    .concat(...extraLines.map(l => (l.data || []).filter(v => isFinite(v))));
+  let yMin = Math.min(...allY), yMax = Math.max(...allY);
+  if (yMin === yMax){ yMin -= 1; yMax += 1; }
+  const yPad = (yMax - yMin) * 0.1;
+  yMin -= yPad; yMax += yPad;
+  const yAt = v => pad.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+  ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1;
+  ctx.fillStyle = COLORS.axis; ctx.font = '9px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let g = 0; g <= 4; g++){
+    const yy = pad.top + (g / 4) * plotH;
+    ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(pad.left + plotW, yy); ctx.stroke();
+    const val = yMax - (g / 4) * (yMax - yMin);
+    ctx.fillText(fmt(val, Math.abs(val) < 10 ? 3 : (Math.abs(val)<1000?2:0)), pad.left - 4, yy);
+  }
+
+  ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++){
+    const xx = idxAt(i), yy = yAt(opts.x[i]);
+    if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+  }
+  ctx.stroke();
+
+  extraLines.forEach(line => {
+    const data = line.data || [];
+    ctx.strokeStyle = line.color || COLORS.ok;
+    ctx.lineWidth = line.width || 1.2;
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < n && i < data.length; i++){
+      const v = data[i];
+      if (v === null || v === undefined || !isFinite(v)) { started = false; continue; }
+      const xx = idxAt(i), yy = yAt(v);
+      if (!started) { ctx.moveTo(xx, yy); started = true; } else { ctx.lineTo(xx, yy); }
+    }
+    ctx.stroke();
+  });
+
+  (opts.markers || []).forEach(m => {
+    ctx.fillStyle = m.color || COLORS.crit;
+    (m.indices || []).forEach(i => {
+      if (i < 0 || i >= n) return;
+      const xx = idxAt(i), yy = yAt(opts.x[i]);
+      ctx.beginPath();
+      ctx.arc(xx, yy, m.radius || 2.5, 0, 2 * Math.PI);
+      ctx.fill();
+    });
+  });
+
+  ctx.fillStyle = COLORS.axis; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.font = '9px monospace';
+  const xTicks = Math.min(6, n);
+  for (let k = 0; k < xTicks; k++){
+    const idx = Math.round(k * (n - 1) / Math.max(1, xTicks - 1));
+    ctx.fillText(String(idx), idxAt(idx), pad.top + plotH + 2);
+  }
+}
+
+function setStatus(data){
+  const pill = document.getElementById('statusPill');
+  pill.classList.remove('status-ok', 'status-warn', 'status-crit');
+  if (data.emergencja_label === 'EMERGENCJA'){
+    pill.textContent = 'EMERGENCJA'; pill.classList.add('status-crit');
+  } else if ((data.n_anomaly||0) > 0 || (data.n_defect||0) > 0){
+    pill.textContent = 'pojedyncze anomalie'; pill.classList.add('status-warn');
+  } else {
+    pill.textContent = 'szum / brak sygnału'; pill.classList.add('status-ok');
+  }
+}
+
+function renderCards(data){
+  const box = document.getElementById('cardsBox');
+  box.innerHTML = '';
+  const bonusNote = data.cascade_bonus ? `+${fmt(data.cascade_bonus,1)} z kaskady` : '';
+  const changePct = data.price_change_pct;
+  const changeSub = changePct !== null && changePct !== undefined
+    ? `${changePct >= 0 ? '+' : ''}${fmt(changePct,2)}% w okresie`
+    : '';
+  const priceValue = fmt(data.last_price, Math.abs(data.last_price||0) < 10 ? 4 : 2)
+    + (data.price_unit_label ? ' ' + data.price_unit_label : '');
+  const volumeSub = data.avg_volume !== null && data.avg_volume !== undefined
+    ? `śr. za okres: ${fmtVolume(data.avg_volume)}`
+    : '';
+  const cards = [
+    ['Cena', priceValue, changeSub],
+    ['Wolumen', fmtVolume(data.last_volume), volumeSub],
+    ['Emergencja', data.emergencja_label, ''],
+    ['Ufność', fmt(data.ufnosc_procent,1) + '%', bonusNote],
+    ['Sharpe (n)', fmt(data.sharpe_n,3), ''],
+    ['Winrate (n)', data.winrate_n !== null ? fmt(data.winrate_n,3) : 'brak transakcji', ''],
+    ['Drawdown (n)', fmt(data.dd_n,3), ''],
+    ['RSI', fmt(data.rsi,1), data.rsi_interpretation || ''],
+    ['Sektor', (data.sector||'—') + ' (' + (data.sector_etf||'—') + ')', ''],
+  ];
+  cards.forEach(([label, value, sub]) => {
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `<div class="label">${label}</div><div class="value">${value}</div>` + (sub ? `<div class="sub">${sub}</div>` : '');
+    box.appendChild(div);
+  });
+}
+
+function renderFindings(data){
+  const lines = [];
+  lines.push(`<div>Analiza <b>${data.n_bars}</b> barów. Rezonans TIMDR na końcu okresu: <b>${fmt(data.resonance_last,2)}</b>.</div>`);
+  lines.push(`<div>Anomalie: ${data.n_anomaly} · Defekty: ${data.n_defect} · Skręty (twist): ${data.n_twist}</div>`);
+  lines.push(`<div>Rytm wolumenu: moc=${fmt(data.rhythm_volume_power,3)}, okresy(bary)=${(data.rhythm_volume_periods||[]).join(', ') || '—'}</div>`);
+  const bt = data.backtest_detail || {};
+  if (bt.no_trades){
+    lines.push(`<div class="warn-row">Backtest: strategia nigdy nie weszła w pozycję na tym okresie (brak wystarczająco silnego, spójnie kierunkowego rezonansu).</div>`);
+  } else {
+    lines.push(`<div>Backtest: Sharpe=${fmt(bt.sharpe,3)}, winrate=${fmt(bt.winrate,3)}, max DD=${fmt(bt.max_dd,3)} (${bt.n_bars_in_position} barów w pozycji)</div>`);
+  }
+  document.getElementById('findingsBox').innerHTML = lines.join('');
+}
+
+function renderCascade(data){
+  const cascade = data.cascade;
+  const chainBox = document.getElementById('cascadeChain');
+  const alertsBox = document.getElementById('cascadeAlerts');
+  chainBox.innerHTML = '';
+  const chain = ['surowce','waluty','obligacje','indeksy','sektory','akcje'];
+  const chainLabels = {surowce:'Surowce', waluty:'Waluty', obligacje:'Obligacje', indeksy:'Indeksy', sektory:'Sektor', akcje:'Akcje'};
+
+  chain.forEach((stage, i) => {
+    if (i > 0){
+      const arrow = document.createElement('div');
+      arrow.className = 'arrow';
+      arrow.textContent = '→';
+      chainBox.appendChild(arrow);
+    }
+    const el = document.createElement('div');
+    const details = cascade && cascade.stage_details ? cascade.stage_details[stage] : null;
+    el.className = 'cascade-stage' + (details && details.active ? ' active' : '');
+    let extra = '';
+    if (details){
+      extra = `<div>${details.direction}</div><div>waga=${fmt(details.flow_weight,2)}</div>`;
+    } else if (stage === 'akcje'){
+      extra = '<div>(analizowany ticker)</div>';
+    }
+    el.innerHTML = `<div class="name">${chainLabels[stage]}</div>${extra}`;
+    chainBox.appendChild(el);
+  });
+
+  if (!cascade){
+    alertsBox.innerHTML = '<span style="color:var(--muted)">kaskada wyłączona dla tej analizy</span>';
+  } else if (cascade.error){
+    alertsBox.innerHTML = `<span class="warn-row">Błąd pobierania danych kaskady: ${cascade.error}</span>`;
+  } else if ((cascade.alerts || []).length === 0){
+    alertsBox.innerHTML = '<span style="color:var(--muted)">Brak aktywności w łańcuchu przed tym tickerem w ostatnim oknie.</span>';
+  } else {
+    alertsBox.innerHTML = cascade.alerts.map(a => `<div class="warn-row">⚠ ${a}</div>`).join('');
+  }
+}
+
+function renderLearning(data){
+  const box = document.getElementById('learningBox');
+  const learning = data.learning || {};
+  const bias = learning.bias_by_lead_time || {};
+  const keys = Object.keys(bias);
+  if (keys.length === 0){
+    box.innerHTML = `<div style="color:var(--muted)">Brak jeszcze potwierdzonych predykcji dla tego tickera - wróć po kilku kolejnych analizach.</div>`;
+    return;
+  }
+  const lines = [];
+  if (learning.n_newly_confirmed > 0){
+    lines.push(`<div>Nowo potwierdzone predykcje w tym uruchomieniu: ${learning.n_newly_confirmed}</div>`);
+  }
+  keys.forEach(k => {
+    const b = bias[k];
+    lines.push(`<div>${b.badge} lead_time=${k} barów: n=${b.n}, trafność=${fmt(b.accuracy,2)}, bias=${fmt(b.bias,2)}, MAE=${fmt(b.mae,2)} ${b.apply_correction ? '(korekta aktywna)' : '(za mało próbek na korektę)'}</div>`);
+  });
+  box.innerHTML = lines.join('');
+}
+
+function renderStateAlert(data){
+  const el = document.getElementById('stateAlert');
+  const sc = data.state_change;
+  if (sc && sc.previous && (sc.changed || sc.confidence_jump)){
+    el.classList.add('active');
+    let msg = '🔄 Zmiana względem poprzedniej analizy tego tickera: ';
+    if (sc.changed) msg += `etykieta ${sc.previous.emergencja_label} → ${data.emergencja_label}. `;
+    if (sc.confidence_jump) msg += `Ufność skoczyła z ${fmt(sc.previous.ufnosc_procent,1)}% na ${fmt(data.ufnosc_procent,1)}%.`;
+    el.textContent = msg;
+  } else {
+    el.classList.remove('active');
+  }
+}
+
+async function analyze(){
+  showError('');
+  const ticker = document.getElementById('inTicker').value.trim();
+  const period = document.getElementById('inPeriod').value;
+  const useCascade = document.getElementById('inCascade').checked;
+  if (!ticker) { showError('Podaj ticker'); return; }
+
+  document.getElementById('dataNote').textContent = `Analizuję ${ticker}...`;
+  const url = `/api/analyze?ticker=${encodeURIComponent(ticker)}&period=${encodeURIComponent(period)}&cascade=${useCascade ? 1 : 0}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+
+  document.getElementById('dataNote').textContent = `${ticker} — ${data.n_bars} barów, okres ${period}.`;
+  setStatus(data);
+  renderCards(data);
+  renderFindings(data);
+  renderCascade(data);
+  renderLearning(data);
+  renderStateAlert(data);
+
+  const markers = [];
+  if (data.anomalies_idx) markers.push({ indices: data.anomalies_idx, color: COLORS.crit, radius: 3 });
+  if (data.defect_idx) markers.push({ indices: data.defect_idx, color: COLORS.violet, radius: 3 });
+  const extraLines = [];
+  if (data.trend) extraLines.push({ data: data.trend, color: COLORS.ok, width: 1.2 });
+  lastChartOpts = { height: 260, x: data.x || data.filtered || [], markers, extraLines };
+  drawChart(document.getElementById('chartPrice'), lastChartOpts);
+}
+
+// Zapamiętany ostatni wykres - potrzebny, żeby przerysować go przy
+// zmianie rozmiaru okna (patrz nasłuch na 'resize' niżej) bez
+// wywoływania ponownie /api/analyze.
+let lastChartOpts = null;
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (lastChartOpts) drawChart(document.getElementById('chartPrice'), lastChartOpts);
+  }, 150);
+});
+
+document.getElementById('btnAnalyze').addEventListener('click', () => analyze().catch(e => showError(e.message)));
+
+document.getElementById('btnClearState').addEventListener('click', async () => {
+  const ticker = document.getElementById('inTicker').value.trim();
+  if (!ticker) return;
+  try {
+    const res = await fetch('/api/state/clear', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ticker }),
+    });
+    const data = await res.json();
+    document.getElementById('dataNote').textContent = `Wyczyszczono historię dla ${ticker} (stan: ${data.state_cleared}, log predykcji: ${data.prediction_log_cleared}).`;
+  } catch (e) {
+    showError(e.message);
+  }
+});
+
+document.getElementById('inTickerList').addEventListener('change', (e) => {
+  const val = e.target.value;
+  const tickerInput = document.getElementById('inTicker');
+  if (val === '__custom__'){
+    tickerInput.value = '';
+    tickerInput.focus();
+    return;
+  }
+  tickerInput.value = val;
+});
+
+// Jeśli ktoś ręcznie wpisze coś inne niż aktualnie wybrana opcja z listy,
+// selectbox przełącza się na "inny", żeby nie pokazywać mylącej niezgodności.
+document.getElementById('inTicker').addEventListener('input', (e) => {
+  const list = document.getElementById('inTickerList');
+  const typed = e.target.value.toUpperCase();
+  const match = Array.from(list.options).find(o => o.value === typed);
+  list.value = match ? match.value : '__custom__';
+});
+
+analyze().catch(e => showError(e.message));
+</script>
+</body>
+</html>
