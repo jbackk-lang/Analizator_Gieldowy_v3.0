@@ -1,0 +1,1 @@
+# Analizator_Gieldowy_v3.0
