@@ -40,6 +40,20 @@ from analizator_gieldowy import EMERGENCE_CONFIDENCE_THRESHOLD
 from cascade import analyze_cascade, adjust_confidence, sector_for_ticker, sector_etf_for_ticker, currency_unit_for_ticker
 from state import StateStore, PredictionLog
 
+# DODANE: integracja z TIMDR-META-DYNAMICS (meta-warstwa nad polem
+# Λ-τ-ρ-J, patrz meta_dynamics_module.py). Import odizolowany w
+# try/except - jesli folder-siostra TIMDR-META-DYNAMICS nie istnieje na
+# tej maszynie (np. sklonowano tylko to jedno repo), reszta API (dashboard,
+# /api/analyze, kaskada, samouczenie) dziala normalnie, tylko /api/meta
+# zwraca czytelny 501 zamiast wywalac caly proces na starcie.
+try:
+    from meta_dynamics_module import analyze_ticker_meta
+    _META_DYNAMICS_AVAILABLE = True
+    _META_DYNAMICS_IMPORT_ERROR = None
+except ImportError as _e:
+    _META_DYNAMICS_AVAILABLE = False
+    _META_DYNAMICS_IMPORT_ERROR = str(_e)
+
 app = Flask(__name__, static_folder="static", static_url_path="")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -172,6 +186,40 @@ def analyze():
     except DataLoaderError as e:
         return jsonify({"error": str(e)}), 400
 
+    return jsonify(_clean(result))
+
+
+@app.route("/api/meta")
+def meta():
+    """Meta-warstwa TIMDR-META-DYNAMICS nad polem Λ-τ-ρ-J tego tickera.
+
+    Mapowanie sygnalow -> pole (patrz meta_dynamics_module.py):
+    Λ=trm, τ=flow, ρ=resonance, J=volume. To DODATKOWA, eksperymentalna
+    warstwa nad tym, co juz robi /api/analyze - nie zastepuje jej i nie
+    wplywa na Emergencja/Ufnosc/RSI/backtest z tamtego endpointu.
+    """
+    if not _META_DYNAMICS_AVAILABLE:
+        return jsonify({
+            "error": (
+                "meta_dynamics_module niedostepny - folder-siostra "
+                "TIMDR-META-DYNAMICS nie zostal znaleziony obok tego repo."
+            ),
+            "detail": _META_DYNAMICS_IMPORT_ERROR,
+        }), 501
+
+    ticker = request.args.get("ticker", "EURPLN=X")
+    period = request.args.get("period", "1y")
+
+    try:
+        ohlcv = fetch_ohlcv(ticker, period=period)
+        result = analyze_ticker_meta(ohlcv)
+    except DataLoaderError as e:
+        return jsonify({"error": str(e)}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    result["ticker"] = ticker
+    result["disclaimer"] = DISCLAIMER
     return jsonify(_clean(result))
 
 

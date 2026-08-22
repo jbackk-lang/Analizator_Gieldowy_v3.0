@@ -97,6 +97,36 @@ def test_analyze_forex_waluta_kwotowana(app_client):
     assert data["currency"] == "PLN"
 
 
+def test_meta_endpoint_zwraca_faze_i_mapowanie(app_client):
+    """DODANE: /api/meta - integracja z TIMDR-META-DYNAMICS (patrz
+    meta_dynamics_module.py). Testuje, ze endpoint dziala end-to-end na
+    zamockowanym OHLCV i zwraca oczekiwany ksztalt."""
+    res = app_client.get("/api/meta?ticker=AAPL&period=1y")
+    assert res.status_code == 200
+    data = res.get_json()
+
+    assert data["ticker"] == "AAPL"
+    assert data["current_phase"] in ("stabilna", "przejsciowa", "krytyczna")
+    assert isinstance(data["phases"], list)
+    assert len(data["future_lambda"]) >= 1
+    assert data["mapping"]["J"] == "volume (surowy wolumen)"
+    assert "disclaimer" in data
+
+
+def test_meta_endpoint_zwraca_501_gdy_modul_niedostepny(app_client, monkeypatch):
+    """Gdy folder-siostra TIMDR-META-DYNAMICS nie jest dostepny (inna
+    maszyna, sklonowano tylko to repo), /api/meta ma zwracac czytelny
+    501, NIE wywalac calego procesu przy imporcie api.py."""
+    import api
+    monkeypatch.setattr(api, "_META_DYNAMICS_AVAILABLE", False)
+    monkeypatch.setattr(api, "_META_DYNAMICS_IMPORT_ERROR", "symulowany brak folderu")
+
+    res = app_client.get("/api/meta?ticker=AAPL")
+    assert res.status_code == 501
+    data = res.get_json()
+    assert "error" in data
+
+
 def test_analyze_nieznany_ticker_zwraca_czytelny_blad(app_client, monkeypatch):
     import data_loader as dl
 

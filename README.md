@@ -135,7 +135,37 @@ analizator-gieldowy-v3/
 - `GET /` - dashboard
 - `GET /api/health`
 - `GET /api/analyze?ticker=AAPL&period=1y&cascade=1` - pełna analiza
+- `GET /api/meta?ticker=AAPL&period=1y` - meta-warstwa TIMDR-META-DYNAMICS (patrz niżej)
 - `POST /api/state/clear` `{"ticker": "AAPL"}` - czyści stan + log predykcji dla tickera
+
+## Integracja z TIMDR-META-DYNAMICS (`/api/meta`)
+
+DODANE: `meta_dynamics_module.py` podłącza [TIMDR-META-DYNAMICS](../TIMDR-META-DYNAMICS)
+(meta-warstwę nad polem Λ-τ-ρ-J, opisującą ewolucję CAŁEGO pola sygnałów
+w czasie, nie pojedynczy sygnał) do prawdziwego `TimdrPacket` z tego
+repo - zamiast do `analizator3_core`, modułu, którego oryginalnie
+zakładał `main.py` w TIMDR-META-DYNAMICS, ale który nigdy nie istniał.
+
+Mapowanie Λ-τ-ρ-J -> sygnały z tego repo (decyzja projektowa, nie
+jedyna możliwa - patrz uzasadnienie w docstringu `meta_dynamics_module.py`):
+
+| Pole | Sygnał z tego repo | Uzasadnienie |
+|---|---|---|
+| Λ (struktura) | `packet.trm` | mediana krocząca ceny - dosłownie linia struktury/trendu |
+| τ (transformacja) | `packet.flow` | tempo zmiany trm - pochodna, "transformacja w toku" |
+| ρ (anomalia) | `packet.resonance` | już ciągły [0,1], zgodność 3 niezależnych sprawdzeń naraz |
+| J (operator punktowy) | wolumen | surowy wolumen z OHLCV |
+
+To DODATKOWA, eksperymentalna warstwa nad `/api/analyze` - nie zastępuje
+jej i nie wpływa na Emergencja/Ufność/RSI/backtest z tamtego endpointu.
+Wymaga, żeby folder `TIMDR-META-DYNAMICS` leżał jako sąsiad tego repo
+(ten sam poziom katalogów); jeśli go nie ma, `/api/meta` zwraca czytelny
+`501` zamiast wywalać cały proces przy starcie API.
+
+Wcześniej jedynym sposobem użycia TIMDR-META-DYNAMICS był osobny
+Tkinter GUI (`gui.py` w tamtym repo) z syntetycznymi danymi demo -
+`/api/meta` to teraz realna integracja na prawdziwych danych giełdowych
+z tego repo, dostępna z tego samego dashboardu/API co reszta analizy.
 
 ## Testy
 
