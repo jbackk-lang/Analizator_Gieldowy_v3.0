@@ -168,15 +168,18 @@ Tkinter GUI (`gui.py` w tamtym repo) z syntetycznymi danymi demo -
 `/api/meta` to teraz realna integracja na prawdziwych danych giełdowych
 z tego repo, dostępna z tego samego dashboardu/API co reszta analizy.
 
-## Integracja z KHIPU-NEURAL (`khipu_bottleneck.py`) — opcjonalna, domyślnie WYŁĄCZONA
+## Integracja z KHIPU-NEURAL (`khipu_bottleneck.py`) — opcjonalna, wyłącznik `KHIPU_BOTTLENECK_ENABLED`
 
 Wpięcie `State9Bottleneck` z
 [jbackk-lang/KHIPU-NEURAL](../KHIPU-NEURAL) w miejsce
 features/embedding -> dalsza logika TRM/FLOW/TWIST, wg 6-krokowego planu
-integracji. **`KHIPU_BOTTLENECK_ENABLED = False` domyślnie** - dopóki
-ktoś świadomie nie ustawi tej flagi na `True` w `khipu_bottleneck.py`,
-`pipeline.py`/`analizator_gieldowy.py` zachowują się DOKŁADNIE tak jak
-przed dodaniem tego modułu (zero zmiany istniejącego wyniku).
+integracji. Kontrolowane wyłącznikiem `KHIPU_BOTTLENECK_ENABLED` w
+`khipu_bottleneck.py` - gdy `False`, `pipeline.py`/`analizator_gieldowy.py`
+zachowują się DOKŁADNIE tak jak przed dodaniem tego modułu (zero zmiany
+istniejącego wyniku); testy sprawdzają działanie przełącznika w OBIE
+strony (`test_switch_actually_gates_khipu_regime`), nie zakładają żadnej
+konkretnej wartości domyślnej - flaga bywa świadomie przełączana podczas
+testów na żywo na realnych tickerach.
 
 Co robi, gdy włączony:
 - `make_embedding(candle_window)` buduje 8-wymiarowy ciągły wektor z
@@ -190,6 +193,21 @@ Co robi, gdy włączony:
   `khipu_regime_mean`), nie zastępujący istniejącego `resonance` (który
   ma inną definicję - zgodność między różnymi wskaźnikami w tej samej
   chwili, nie między oknami czasowymi).
+- **Alerty rozjazdu reżimu** (`khipu_bottleneck.py::regime_alerts`,
+  próg `KHIPU_ALERT_THRESHOLD = -0.5`): gdy `regime_agreement_score`
+  między dwoma sąsiednimi oknami spadnie do/poniżej progu (duża
+  rozbieżność kodu State9 - podejrzenie nagłej zmiany dyskretnego stanu
+  rynku), dopisywane do wyniku jako `khipu_regime_alerts` (lista
+  czytelnych komunikatów), `khipu_regime_alerts_idx` (odpowiadające
+  bar-indeksy, do naniesienia na wykres ceny - pomarańczowe znaczniki w
+  dashboardzie), `n_khipu_regime_alerts` (liczba) i
+  `khipu_regime_alert_active` (czy OSTATNIE okno jest w stanie alertu).
+  **`KHIPU_ALERT_THRESHOLD` to ustalona wartość heurystyczna** - nie
+  wyprowadzona z rozkładu historycznych danych ani z backtestu progu
+  (w odróżnieniu np. od pracy nad `EMERGENCE_CONFIDENCE_THRESHOLD`) -
+  punkt startowy do dostrojenia, nie potwierdzona liczba. To DALEJ
+  dyskretny sygnał zgodności stanu, NIE predykcja kierunku ani
+  wielkości ruchu ceny.
 - `calibrate()` pozwala douczyć projekcję na parach okien z etykietą
   "ta sama faza" - **etykiety domyślne w `MarketPhaseDataset` to
   HEURYSTYCZNY bootstrap ze znaku FLOW, NIE niezależna, zweryfikowana
@@ -202,8 +220,8 @@ Co robi, gdy włączony:
 bottleneck pomaga na zadaniach KATEGORIALNYCH ("czy te dwa stany
 należą do tej samej fazy") i SZKODZI na zadaniach wymagających
 precyzyjnej wartości ciągłej. Dlatego moduł nigdy nie zwraca ceny ani
-innej ciągłej wielkości - tylko dyskretny sygnał zgodności. Nie używać
-do regresji ceny/wolumenu/odległości.
+innej ciągłej wielkości - tylko dyskretny sygnał zgodności (i alerty na
+nim oparte). Nie używać do regresji ceny/wolumenu/odległości.
 
 ## Testy
 
@@ -211,7 +229,7 @@ do regresji ceny/wolumenu/odległości.
 python -m pytest -q
 ```
 
-98/98 testy przechodzą (`timdr_core_finance`, `analizator_gieldowy`
+104/104 testy przechodzą (`timdr_core_finance`, `analizator_gieldowy`
 pośrednio przez `pipeline`, `pipeline`, `cascade`, `data_loader`, `state`,
 `api`, `khipu_bottleneck`). Wszystkie testy `data_loader`/`api` mockują
 `yfinance` (brak zależności od sieci przy testowaniu) - realne

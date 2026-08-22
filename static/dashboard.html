@@ -189,6 +189,7 @@
     <span><i class="dot" style="background:#35d488"></i>trend (mediana krocząca)</span>
     <span><i class="dot" style="background:#ef4b5f"></i>anomalie</span>
     <span><i class="dot" style="background:#a78bfa"></i>defekty (skoki)</span>
+    <span><i class="dot" style="background:#f5a623"></i>alert reżimu KHIPU</span>
   </div>
   <canvas id="chartPrice" height="240"></canvas>
 </div>
@@ -197,6 +198,11 @@
   <h2>Kaskada przepływu kapitału (surowce → waluty → obligacje → indeksy → sektory → akcje)</h2>
   <div class="cascade-chain" id="cascadeChain"></div>
   <div class="cascade-alerts" id="cascadeAlerts">—</div>
+</div>
+
+<div class="panel">
+  <h2>Reżim KHIPU (State9 bottleneck) — sygnał opcjonalny, eksperymentalny</h2>
+  <div id="khipuBox" style="font-size:12px; line-height:1.7;">—</div>
 </div>
 
 <div class="panel">
@@ -430,6 +436,26 @@ function renderCascade(data){
   }
 }
 
+function renderKhipu(data){
+  const box = document.getElementById('khipuBox');
+  if (data.khipu_regime_last === undefined || data.khipu_regime_last === null){
+    box.innerHTML = '<span style="color:var(--muted)">Moduł KHIPU wyłączony (KHIPU_BOTTLENECK_ENABLED=False) - brak sygnału zgodności reżimu.</span>';
+    return;
+  }
+  const lines = [];
+  lines.push(`<div>Zgodność reżimu — ostatnie okno: <b>${fmt(data.khipu_regime_last,3)}</b> · średnia w okresie: ${fmt(data.khipu_regime_mean,3)} <span style="color:var(--muted)">(skala [-1,1]: +1 = identyczny dyskretny stan jak w poprzednim oknie, -1 = maksymalnie odwrotny)</span></div>`);
+  if (data.khipu_regime_alert_active){
+    lines.push(`<div class="warn-row">⚠ Ostatnie okno JEST w stanie alertu — rozjazd reżimu poniżej progu.</div>`);
+  }
+  lines.push(`<div>Alerty rozjazdu reżimu w tym okresie: <b>${data.n_khipu_regime_alerts||0}</b></div>`);
+  (data.khipu_regime_alerts||[]).slice(0,10).forEach(m => lines.push(`<div class="warn-row">⚠ ${m}</div>`));
+  if ((data.n_khipu_regime_alerts||0) > 10){
+    lines.push(`<div style="color:var(--muted)">... i ${data.n_khipu_regime_alerts - 10} więcej.</div>`);
+  }
+  lines.push(`<div style="color:var(--muted); margin-top:4px;">To DYSKRETNY sygnał zgodności stanu (nie predykcja ceny/kierunku) - patrz README, sekcja KHIPU, po pełne ograniczenia.</div>`);
+  box.innerHTML = lines.join('');
+}
+
 function renderLearning(data){
   const box = document.getElementById('learningBox');
   const learning = data.learning || {};
@@ -484,10 +510,12 @@ async function analyze(){
   renderCascade(data);
   renderLearning(data);
   renderStateAlert(data);
+  renderKhipu(data);
 
   const markers = [];
   if (data.anomalies_idx) markers.push({ indices: data.anomalies_idx, color: COLORS.crit, radius: 3 });
   if (data.defect_idx) markers.push({ indices: data.defect_idx, color: COLORS.violet, radius: 3 });
+  if (data.khipu_regime_alerts_idx && data.khipu_regime_alerts_idx.length) markers.push({ indices: data.khipu_regime_alerts_idx, color: COLORS.warn, radius: 4 });
   const extraLines = [];
   if (data.trend) extraLines.push({ data: data.trend, color: COLORS.ok, width: 1.2 });
   lastChartOpts = { height: 260, x: data.x || data.filtered || [], markers, extraLines };

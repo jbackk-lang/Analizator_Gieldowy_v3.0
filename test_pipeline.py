@@ -67,25 +67,37 @@ def test_pipeline_dziala_na_minimalnej_liczbie_barow():
 
 
 # ---------------------------------------------------------------------
-# Integracja opcjonalnego modulu KHIPU (khipu_bottleneck.py) - patrz
-# tam po pelny opis 6-krokowego planu integracji. Domyslnie WYLACZONY
-# (KHIPU_BOTTLENECK_ENABLED=False), wiec te testy potwierdzaja przede
-# wszystkim, ze NIC SIE NIE ZMIENIA w istniejacym zachowaniu, dopoki
-# ktos swiadomie nie wlaczy flagi.
+# Integracja opcjonalnego modulu KHIPU (khipu_bottleneck.py) - patrz tam
+# po pelny opis 6-krokowego planu integracji + alerty rozjazdu rezimu.
+# Testy wylaczone/wlaczone NIE zakladaja konkretnej wartosci domyslnej
+# flagi KHIPU_BOTTLENECK_ENABLED (patrz test_switch_actually_gates_khipu_regime
+# w test_khipu_bottleneck.py) - kazdy z ponizszych testow jawnie ustawia
+# flage przez monkeypatch, wiec dzialaja niezaleznie od tego, co akurat
+# jest wpisane w khipu_bottleneck.py.
 # ---------------------------------------------------------------------
 
-def test_khipu_regime_is_none_by_default():
+def test_khipu_regime_is_none_when_disabled(monkeypatch):
+    import khipu_bottleneck
+    monkeypatch.setattr(khipu_bottleneck, "KHIPU_BOTTLENECK_ENABLED", False)
+
     ohlcv = _make_ohlcv(n=100)
     engine = TimdrEngine(ohlcv)
     packet = engine.compute_packet()
     assert packet.khipu_regime is None
 
 
-def test_wynik_bez_khipu_kluczy_gdy_wylaczony():
+def test_wynik_bez_khipu_kluczy_gdy_wylaczony(monkeypatch):
+    import khipu_bottleneck
+    monkeypatch.setattr(khipu_bottleneck, "KHIPU_BOTTLENECK_ENABLED", False)
+
     ohlcv = _make_ohlcv(n=100)
     wynik = run_pipeline(ohlcv)
     assert "khipu_regime_last" not in wynik
     assert "khipu_regime_mean" not in wynik
+    assert "khipu_regime_alerts" not in wynik
+    assert "khipu_regime_alerts_idx" not in wynik
+    assert "n_khipu_regime_alerts" not in wynik
+    assert "khipu_regime_alert_active" not in wynik
 
 
 def test_khipu_regime_dziala_gdy_wlaczony(monkeypatch):
@@ -101,3 +113,15 @@ def test_khipu_regime_dziala_gdy_wlaczony(monkeypatch):
     wynik = run_pipeline(ohlcv)
     assert "khipu_regime_last" in wynik
     assert -1.0 <= wynik["khipu_regime_last"] <= 1.0
+
+    # Alerty rozjazdu reżimu (patrz khipu_bottleneck.py::regime_alerts) -
+    # muszą być obecne i spójne ze sobą (liczba == długość list).
+    assert isinstance(wynik["n_khipu_regime_alerts"], int)
+    assert isinstance(wynik["khipu_regime_alert_active"], bool)
+    assert len(wynik["khipu_regime_alerts"]) == wynik["n_khipu_regime_alerts"]
+    assert len(wynik["khipu_regime_alerts_idx"]) == wynik["n_khipu_regime_alerts"]
+    assert wynik["khipu_regime_alert_active"] == (
+        wynik["khipu_regime_last"] <= khipu_bottleneck.KHIPU_ALERT_THRESHOLD
+    )
+    for idx in wynik["khipu_regime_alerts_idx"]:
+        assert 0 <= idx < wynik["n_bars"]

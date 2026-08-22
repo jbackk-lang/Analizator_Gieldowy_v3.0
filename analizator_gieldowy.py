@@ -300,4 +300,20 @@ class AnalizatorGieldowy:
                 result["khipu_regime_last"] = round(float(khipu_scores[-1]), 3)
                 result["khipu_regime_mean"] = round(float(np.mean(khipu_scores)), 3)
 
+                # Alerty rozjazdu reżimu (patrz khipu_bottleneck.py::regime_alerts
+                # i KHIPU_ALERT_THRESHOLD) - lista barów, gdzie zgodność kodu
+                # State9 między sąsiednimi oknami spadła poniżej ustalonego
+                # progu. Import lokalny (nie na górze pliku) z tego samego
+                # powodu co w pipeline.py: khipu_bottleneck jest opcjonalną
+                # zależnością tego bloku, nie całego modułu.
+                from khipu_bottleneck import regime_alerts, KHIPU_ALERT_THRESHOLD
+                bar_indices = getattr(packet.khipu_regime, "bar_indices", None)
+                if bar_indices is None:
+                    bar_indices = np.arange(len(khipu_scores))
+                alerts = regime_alerts(khipu_scores, bar_indices, threshold=KHIPU_ALERT_THRESHOLD)
+                result["khipu_regime_alerts"] = [a["message"] for a in alerts]
+                result["khipu_regime_alerts_idx"] = [a["bar_index"] for a in alerts]
+                result["n_khipu_regime_alerts"] = len(alerts)
+                result["khipu_regime_alert_active"] = bool(khipu_scores[-1] <= KHIPU_ALERT_THRESHOLD)
+
         return result

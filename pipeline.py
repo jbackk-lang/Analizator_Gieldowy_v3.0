@@ -17,6 +17,8 @@ architektury).
 
 from __future__ import annotations
 
+import numpy as np
+
 from timdr_core_finance import (
     trm, flow, twist, rhythm,
     anomalies, defect, resonance
@@ -65,11 +67,13 @@ class PriceSignal:
 
 
 class KhipuRegimeSignal:
-    """Wynik KHIPURegimeSignal.score_series() (khipu_bottleneck.py) -
-    seria zgodności reżimu między sąsiadującymi oknami świec, [-1, 1].
+    """Wynik KHIPURegimeSignal.score_series_indexed() (khipu_bottleneck.py) -
+    seria zgodności reżimu między sąsiadującymi oknami świec, [-1, 1], oraz
+    odpowiadające im bar-indeksy (do nanoszenia alertów na wykres ceny).
     OPCJONALNE - patrz TimdrPacket.khipu_regime niżej."""
-    def __init__(self, values):
+    def __init__(self, values, bar_indices=None):
         self.values = values
+        self.bar_indices = bar_indices if bar_indices is not None else np.arange(len(values))
 
 
 class TimdrPacket:
@@ -148,8 +152,8 @@ class TimdrEngine:
         try:
             from khipu_bottleneck import KHIPU_BOTTLENECK_ENABLED, KHIPURegimeSignal
             if KHIPU_BOTTLENECK_ENABLED:
-                khipu_scores = KHIPURegimeSignal().score_series(self.ohlcv)
-                khipu_regime_signal = KhipuRegimeSignal(khipu_scores)
+                khipu_scores, khipu_bar_idx = KHIPURegimeSignal().score_series_indexed(self.ohlcv)
+                khipu_regime_signal = KhipuRegimeSignal(khipu_scores, khipu_bar_idx)
         except Exception:
             khipu_regime_signal = None
 
