@@ -64,6 +64,14 @@ class PriceSignal:
         self.values = values
 
 
+class KhipuRegimeSignal:
+    """Wynik KHIPURegimeSignal.score_series() (khipu_bottleneck.py) -
+    seria zgodności reżimu między sąsiadującymi oknami świec, [-1, 1].
+    OPCJONALNE - patrz TimdrPacket.khipu_regime niżej."""
+    def __init__(self, values):
+        self.values = values
+
+
 class TimdrPacket:
     """
     Pakiet sygnałów TIMDR przekazywany do analizatora.
@@ -94,6 +102,7 @@ class TimdrPacket:
         defect_signal,
         resonance_signal,
         price_signal,
+        khipu_regime_signal=None,
     ):
         self.trm = trm_signal
         self.flow = flow_signal
@@ -103,6 +112,10 @@ class TimdrPacket:
         self.defect = defect_signal
         self.resonance = resonance_signal
         self.price = price_signal
+        # OPCJONALNE (patrz khipu_bottleneck.py) - None dopóki
+        # KHIPU_BOTTLENECK_ENABLED=False (domyślnie), więc istniejący
+        # kod czytający TimdrPacket nie widzi żadnej zmiany.
+        self.khipu_regime = khipu_regime_signal
 
 
 class TimdrEngine:
@@ -125,6 +138,21 @@ class TimdrEngine:
         defect_idx = defect(price)
         resonance_score, resonance_strong_idx = resonance(price)
 
+        # OPCJONALNY sygnał KHIPU (krok integracji "features -> KHIPU
+        # bottleneck -> dalsza logika TRM/FLOW/TWIST") - liczony TYLKO
+        # gdy KHIPU_BOTTLENECK_ENABLED=True (domyślnie False, patrz
+        # khipu_bottleneck.py). Failuje cicho (except Exception: None) -
+        # to dodatkowy, opcjonalny sygnał, nie krytyczna ścieżka; awaria
+        # tutaj NIE ma prawa wywrócić reszty pipeline'u.
+        khipu_regime_signal = None
+        try:
+            from khipu_bottleneck import KHIPU_BOTTLENECK_ENABLED, KHIPURegimeSignal
+            if KHIPU_BOTTLENECK_ENABLED:
+                khipu_scores = KHIPURegimeSignal().score_series(self.ohlcv)
+                khipu_regime_signal = KhipuRegimeSignal(khipu_scores)
+        except Exception:
+            khipu_regime_signal = None
+
         return TimdrPacket(
             trm_signal=TrmSignal(trm_price),
             flow_signal=FlowSignal(flow_price),
@@ -134,6 +162,7 @@ class TimdrEngine:
             defect_signal=DefectSignal(defect_idx),
             resonance_signal=ResonanceSignal(resonance_score),
             price_signal=PriceSignal(price),
+            khipu_regime_signal=khipu_regime_signal,
         )
 
 

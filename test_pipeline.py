@@ -64,3 +64,40 @@ def test_pipeline_dziala_na_minimalnej_liczbie_barow():
     ohlcv = _make_ohlcv(n=15)
     wynik = run_pipeline(ohlcv)
     assert wynik["n_bars"] == 15
+
+
+# ---------------------------------------------------------------------
+# Integracja opcjonalnego modulu KHIPU (khipu_bottleneck.py) - patrz
+# tam po pelny opis 6-krokowego planu integracji. Domyslnie WYLACZONY
+# (KHIPU_BOTTLENECK_ENABLED=False), wiec te testy potwierdzaja przede
+# wszystkim, ze NIC SIE NIE ZMIENIA w istniejacym zachowaniu, dopoki
+# ktos swiadomie nie wlaczy flagi.
+# ---------------------------------------------------------------------
+
+def test_khipu_regime_is_none_by_default():
+    ohlcv = _make_ohlcv(n=100)
+    engine = TimdrEngine(ohlcv)
+    packet = engine.compute_packet()
+    assert packet.khipu_regime is None
+
+
+def test_wynik_bez_khipu_kluczy_gdy_wylaczony():
+    ohlcv = _make_ohlcv(n=100)
+    wynik = run_pipeline(ohlcv)
+    assert "khipu_regime_last" not in wynik
+    assert "khipu_regime_mean" not in wynik
+
+
+def test_khipu_regime_dziala_gdy_wlaczony(monkeypatch):
+    import khipu_bottleneck
+    monkeypatch.setattr(khipu_bottleneck, "KHIPU_BOTTLENECK_ENABLED", True)
+
+    ohlcv = _make_ohlcv(n=100)
+    engine = TimdrEngine(ohlcv)
+    packet = engine.compute_packet()
+    assert packet.khipu_regime is not None
+    assert len(packet.khipu_regime.values) > 0
+
+    wynik = run_pipeline(ohlcv)
+    assert "khipu_regime_last" in wynik
+    assert -1.0 <= wynik["khipu_regime_last"] <= 1.0
