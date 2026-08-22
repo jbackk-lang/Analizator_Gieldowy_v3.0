@@ -125,9 +125,10 @@ analizator-gieldowy-v3/
 ├── data_loader.py            - pobieranie OHLCV (yfinance) + dzienny cache + schemat kaskady
 ├── api.py                    - Flask API (port 8060) + serwowanie dashboardu
 ├── static/dashboard.html     - dashboard (ciemny motyw, Canvas 2D, bez CDN)
+├── khipu_bottleneck.py       - opcjonalny modul KHIPU (domyslnie WYLACZONY, patrz nizej)
 ├── run.bat                   - instalacja zależności + testy + start serwera
 ├── requirements.txt
-└── test_*.py                 - 74 testy pytest (w tym test_api.py)
+└── test_*.py                 - 98 testów pytest (w tym test_api.py, test_khipu_bottleneck.py)
 ```
 
 ## Endpointy API
@@ -167,17 +168,55 @@ Tkinter GUI (`gui.py` w tamtym repo) z syntetycznymi danymi demo -
 `/api/meta` to teraz realna integracja na prawdziwych danych giełdowych
 z tego repo, dostępna z tego samego dashboardu/API co reszta analizy.
 
+## Integracja z KHIPU-NEURAL (`khipu_bottleneck.py`) — opcjonalna, domyślnie WYŁĄCZONA
+
+Wpięcie `State9Bottleneck` z
+[jbackk-lang/KHIPU-NEURAL](../KHIPU-NEURAL) w miejsce
+features/embedding -> dalsza logika TRM/FLOW/TWIST, wg 6-krokowego planu
+integracji. **`KHIPU_BOTTLENECK_ENABLED = False` domyślnie** - dopóki
+ktoś świadomie nie ustawi tej flagi na `True` w `khipu_bottleneck.py`,
+`pipeline.py`/`analizator_gieldowy.py` zachowują się DOKŁADNIE tak jak
+przed dodaniem tego modułu (zero zmiany istniejącego wyniku).
+
+Co robi, gdy włączony:
+- `make_embedding(candle_window)` buduje 8-wymiarowy ciągły wektor z
+  istniejących bloków TIMDR (`trm`/`flow`/`twist`) + cech świecowych.
+- `State9Bottleneck` (wierny port matematyki z KHIPU-NEURAL, gradienty
+  tam zweryfikowane do ~1e-11) ściska embedding do 9-osiowego,
+  dyskretnego kodu ±1 z warunkiem równowagi F4-RED.
+- `regime_agreement`/`regime_agreement_score` (reguła GIPU: iloczyn
+  per-oś) mierzą zgodność dwóch sąsiadujących okien świecowych - NOWY
+  sygnał `packet.khipu_regime`, dopisywany DO WYNIKU (`khipu_regime_last`,
+  `khipu_regime_mean`), nie zastępujący istniejącego `resonance` (który
+  ma inną definicję - zgodność między różnymi wskaźnikami w tej samej
+  chwili, nie między oknami czasowymi).
+- `calibrate()` pozwala douczyć projekcję na parach okien z etykietą
+  "ta sama faza" - **etykiety domyślne w `MarketPhaseDataset` to
+  HEURYSTYCZNY bootstrap ze znaku FLOW, NIE niezależna, zweryfikowana
+  etykieta rynkowa** (nikt takiej nie dostarczył - patrz docstring
+  `MarketPhaseDataset`). Kalibracja na tych etykietach demonstruje, że
+  mechanizm działa, nie że sygnał wynikowy niesie nową informację ponad
+  to, co `flow` już dawał.
+
+**Granice (wprost z wniosków KHIPU-NEURAL, patrz jego README):** ten
+bottleneck pomaga na zadaniach KATEGORIALNYCH ("czy te dwa stany
+należą do tej samej fazy") i SZKODZI na zadaniach wymagających
+precyzyjnej wartości ciągłej. Dlatego moduł nigdy nie zwraca ceny ani
+innej ciągłej wielkości - tylko dyskretny sygnał zgodności. Nie używać
+do regresji ceny/wolumenu/odległości.
+
 ## Testy
 
 ```
 python -m pytest -q
 ```
 
-74/74 testy przechodzą (`timdr_core_finance`, `analizator_gieldowy`
+98/98 testy przechodzą (`timdr_core_finance`, `analizator_gieldowy`
 pośrednio przez `pipeline`, `pipeline`, `cascade`, `data_loader`, `state`,
-`api`). Wszystkie testy `data_loader`/`api` mockują `yfinance` (brak
-zależności od sieci przy testowaniu) - realne pobieranie danych giełdowych
-wymaga połączenia internetowego przy faktycznym uruchomieniu.
+`api`, `khipu_bottleneck`). Wszystkie testy `data_loader`/`api` mockują
+`yfinance` (brak zależności od sieci przy testowaniu) - realne
+pobieranie danych giełdowych wymaga połączenia internetowego przy
+faktycznym uruchomieniu.
 
 ## Ograniczenia
 

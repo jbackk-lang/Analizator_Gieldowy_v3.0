@@ -289,4 +289,15 @@ class AnalizatorGieldowy:
             "n_bars": n,
             "x": price_like.tolist(),
         }
+
+        # OPCJONALNE (patrz khipu_bottleneck.py/pipeline.py): obecne
+        # TYLKO gdy KHIPU_BOTTLENECK_ENABLED=True - domyślnie
+        # packet.khipu_regime jest None, więc ten blok się nie wykonuje
+        # i wynik jest identyczny jak przed dodaniem tego modułu.
+        if getattr(packet, "khipu_regime", None) is not None:
+            khipu_scores = packet.khipu_regime.values
+            if len(khipu_scores):
+                result["khipu_regime_last"] = round(float(khipu_scores[-1]), 3)
+                result["khipu_regime_mean"] = round(float(np.mean(khipu_scores)), 3)
+
         return result
