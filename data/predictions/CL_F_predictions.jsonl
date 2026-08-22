@@ -1,0 +1,3 @@
+{"status": "pending", "bar_index": 251, "bar_timestamp": "2026-08-18 00:00:00", "direction": "up", "confidence": 3.3, "lead_time_bars": 5, "target_bar_index": 256}
+{"status": "pending", "bar_index": 251, "bar_timestamp": "2026-08-19 00:00:00", "direction": "up", "confidence": 6.7, "lead_time_bars": 5, "target_bar_index": 256}
+{"status": "pending", "bar_index": 250, "bar_timestamp": "2026-08-21 00:00:00", "direction": "up", "confidence": 6.7, "lead_time_bars": 5, "target_bar_index": 255}
