@@ -11,7 +11,7 @@ import khipu_bottleneck as kb
 from khipu_bottleneck import (
     State9Bottleneck, balance_correct, make_embedding, regime_agreement,
     regime_agreement_score, KHIPURegimeSignal, MarketPhaseDataset, calibrate,
-    N_AXES, D_EMBED,
+    regime_alerts, KHIPU_ALERT_THRESHOLD, N_AXES, D_EMBED,
 )
 
 
@@ -26,11 +26,26 @@ def _make_ohlcv(n=120, seed=1, trend=0.05):
 
 
 # ---------------------------------------------------------------------
-# Krok 6 (wyłącznik) - domyślnie moduł nie zmienia niczego
+# Krok 6 (wyłącznik) - NIE zakładamy konkretnej wartości domyślnej flagi
+# (użytkownik może ją świadomie przełączać podczas testów na żywo na
+# realnych tickerach) - test sprawdza tylko, że przełącznik NAPRAWDĘ
+# działa w obie strony, cokolwiek jest akurat ustawione w pliku.
 # ---------------------------------------------------------------------
 
-def test_module_disabled_by_default():
-    assert kb.KHIPU_BOTTLENECK_ENABLED is False
+def test_switch_actually_gates_khipu_regime(monkeypatch):
+    assert isinstance(kb.KHIPU_BOTTLENECK_ENABLED, bool)
+
+    import khipu_bottleneck
+    from pipeline import TimdrEngine
+    ohlcv = _make_ohlcv(n=100)
+
+    monkeypatch.setattr(khipu_bottleneck, "KHIPU_BOTTLENECK_ENABLED", False)
+    packet_off = TimdrEngine(ohlcv).compute_packet()
+    assert packet_off.khipu_regime is None
+
+    monkeypatch.setattr(khipu_bottleneck, "KHIPU_BOTTLENECK_ENABLED", True)
+    packet_on = TimdrEngine(ohlcv).compute_packet()
+    assert packet_on.khipu_regime is not None
 
 
 # ---------------------------------------------------------------------
@@ -134,6 +149,62 @@ def test_khipu_regime_signal_empty_for_too_short_series():
     sig = KHIPURegimeSignal()
     scores = sig.score_series(ohlcv, window_size=20, step=5)
     assert len(scores) == 0
+
+
+def test_score_series_indexed_matches_score_series():
+    """score_series() ma być cienką otoczką nad score_series_indexed() -
+    same wyniki, tylko bez bar-indeksów."""
+    ohlcv = _make_ohlcv(n=100)
+    sig = KHIPURegimeSignal()
+    scores_plain = sig.score_series(ohlcv, window_size=20, step=5)
+    scores_idx, bar_idx = sig.score_series_indexed(ohlcv, window_size=20, step=5)
+    assert np.array_equal(scores_plain, scores_idx)
+    assert len(bar_idx) == len(scores_idx)
+    # bar-indeksy muszą rosnąco mieścić się w zakresie serii wejściowej
+    assert np.all(np.diff(bar_idx) > 0)
+    assert np.all(bar_idx < len(ohlcv))
+
+
+def test_score_series_indexed_empty_for_too_short_series():
+    ohlcv = _make_ohlcv(n=15)
+    sig = KHIPURegimeSignal()
+    scores, bar_idx = sig.score_series_indexed(ohlcv, window_size=20, step=5)
+    assert len(scores) == 0
+    assert len(bar_idx) == 0
+
+
+# ---------------------------------------------------------------------
+# Alerty na zgodność reżimu (regime_alerts / KHIPU_ALERT_THRESHOLD)
+# ---------------------------------------------------------------------
+
+def test_regime_alerts_fires_only_below_threshold():
+    scores = np.array([0.9, 0.1, -0.4, -0.6, -1.0])
+    bar_idx = np.array([10, 20, 30, 40, 50])
+    alerts = regime_alerts(scores, bar_idx, threshold=-0.5)
+    assert [a["bar_index"] for a in alerts] == [40, 50]
+    assert all(a["score"] <= -0.5 for a in alerts)
+    assert all("Rozjazd reżimu KHIPU" in a["message"] for a in alerts)
+
+
+def test_regime_alerts_boundary_is_inclusive():
+    scores = np.array([-0.5])
+    bar_idx = np.array([7])
+    alerts = regime_alerts(scores, bar_idx, threshold=-0.5)
+    assert len(alerts) == 1
+
+
+def test_regime_alerts_empty_when_nothing_crosses_threshold():
+    scores = np.array([0.9, 0.5, 0.1, -0.2])
+    bar_idx = np.array([1, 2, 3, 4])
+    alerts = regime_alerts(scores, bar_idx, threshold=KHIPU_ALERT_THRESHOLD)
+    assert alerts == []
+
+
+def test_regime_alerts_uses_module_default_threshold_when_unspecified():
+    scores = np.array([KHIPU_ALERT_THRESHOLD - 0.01])
+    bar_idx = np.array([5])
+    alerts = regime_alerts(scores, bar_idx)
+    assert len(alerts) == 1
 
 
 # ---------------------------------------------------------------------

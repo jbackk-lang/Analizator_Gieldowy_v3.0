@@ -45,9 +45,21 @@ import numpy as np
 # krok 6 planu integracji: łatwe wyłączenie, jeśli okaże się, że to
 # szkodzi na jakimś fragmencie pipeline'u.
 # ---------------------------------------------------------------------
-KHIPU_BOTTLENECK_ENABLED = False
+KHIPU_BOTTLENECK_ENABLED = True
 
 N_AXES = 9  # jak w State9/F4-RED (KHIPU) i KHIPU-NEURAL
+
+# ---------------------------------------------------------------------
+# Alerty na zgodność reżimu — próg, poniżej którego regime_agreement_score
+# między dwoma sąsiednimi oknami uznajemy za "ostry rozjazd" (podejrzenie
+# nagłej zmiany dyskretnego stanu rynku). UWAGA: to jest USTALONA WARTOŚĆ
+# HEURYSTYCZNA — nie wyprowadzona z rozkładu historycznych wyników ani z
+# backtestu progu (w odróżnieniu od EMERGENCE_CONFIDENCE_THRESHOLD w
+# analizator_gieldowy.py, który też jest ustalony ręcznie, ale przynajmniej
+# ma dokumentację, dlaczego akurat 20%) — traktuj to jako punkt startowy do
+# dostrojenia, nie potwierdzoną liczbę.
+# ---------------------------------------------------------------------
+KHIPU_ALERT_THRESHOLD = -0.5
 
 
 # ---------------------------------------------------------------------
@@ -247,16 +259,17 @@ class KHIPURegimeSignal:
     def __init__(self, bottleneck: State9Bottleneck | None = None, d_embed: int = D_EMBED):
         self.bottleneck = bottleneck or State9Bottleneck(d_in=d_embed)
 
-    def score_series(self, ohlcv: "pd.DataFrame", window_size: int = 20, step: int = 1) -> np.ndarray:
-        """Dla serii OHLCV liczy regime_agreement_score między KAŻDĄ
-        parą kolejnych okien (window_size świec), krok co `step` -
-        zwraca tablicę (n_windows - 1,) - analogon "resonance między
-        sąsiadującymi tokenami" z KHIPU-NEURAL, tu: między sąsiadującymi
-        oknami świec zamiast pojedynczymi tokenami."""
+    def score_series_indexed(self, ohlcv: "pd.DataFrame", window_size: int = 20,
+                              step: int = 1) -> tuple[np.ndarray, np.ndarray]:
+        """Jak score_series() niżej, ale zwraca RÓWNIEŻ, dla każdego wyniku,
+        bar-index ostatniej świecy okna j+1 (końca "młodszego" okna pary) -
+        potrzebne, żeby dało się nanieść alert (patrz regime_alerts()) na
+        wykres ceny w tym samym układzie współrzędnych co anomalie/defekty/
+        twist (te też są indeksami barów, nie indeksami okien)."""
         n = len(ohlcv)
         starts = list(range(0, n - window_size + 1, step))
         if len(starts) < 2:
-            return np.array([], dtype=float)
+            return np.array([], dtype=float), np.array([], dtype=int)
 
         codes = []
         for s in starts:
@@ -267,7 +280,41 @@ class KHIPURegimeSignal:
             regime_agreement_score(codes[i], codes[i + 1])
             for i in range(len(codes) - 1)
         ], dtype=float)
+        bar_indices = np.array([
+            starts[i + 1] + window_size - 1
+            for i in range(len(codes) - 1)
+        ], dtype=int)
+        return scores, bar_indices
+
+    def score_series(self, ohlcv: "pd.DataFrame", window_size: int = 20, step: int = 1) -> np.ndarray:
+        """Dla serii OHLCV liczy regime_agreement_score między KAŻDĄ
+        parą kolejnych okien (window_size świec), krok co `step` -
+        zwraca tablicę (n_windows - 1,) - analogon "resonance między
+        sąsiadującymi tokenami" z KHIPU-NEURAL, tu: między sąsiadującymi
+        oknami świec zamiast pojedynczymi tokenami. (Cienka otoczka nad
+        score_series_indexed() - patrz tam, jeśli potrzebujesz też
+        bar-indexów, np. do naniesienia alertów na wykres.)"""
+        scores, _ = self.score_series_indexed(ohlcv, window_size=window_size, step=step)
         return scores
+
+
+def regime_alerts(scores: np.ndarray, bar_indices: np.ndarray,
+                   threshold: float = KHIPU_ALERT_THRESHOLD) -> list[dict]:
+    """Zwraca listę alertów dla okien, gdzie regime_agreement_score <=
+    threshold — duża rozbieżność kodu State9 między sąsiednimi oknami,
+    czyli podejrzenie nagłej zmiany dyskretnego reżimu/stanu rynku. To
+    NIE jest predykcja kierunku ani wielkości ruchu ceny (patrz
+    ograniczenia w docstringu modułu) - tylko flaga "coś się nagle
+    przestawiło w dyskretnym opisie stanu, warto spojrzeć ręcznie"."""
+    alerts = []
+    for score, idx in zip(scores, bar_indices):
+        if score <= threshold:
+            alerts.append({
+                "bar_index": int(idx),
+                "score": round(float(score), 3),
+                "message": f"Rozjazd reżimu KHIPU na barze {int(idx)} (score={score:.2f})",
+            })
+    return alerts
 
 
 # ---------------------------------------------------------------------
