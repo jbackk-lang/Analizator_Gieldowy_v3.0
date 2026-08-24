@@ -118,6 +118,7 @@ dla systemów TIMDR. Wszystkie zaadresowano tu od początku, świadomie:
 ```
 analizator-gieldowy-v3/
 ├── timdr_core_finance.py    - silnik TIMDR (trm/flow/twist/rhythm/anomalie/defekt/rezonans)
+├── ringdown.py               - ringdown_resonance(): rezonans w sensie fizycznym (oscylacyjny powrot ceny po skoku)
 ├── analizator_gieldowy.py   - RSI, backtest, klasyfikacja Emergencja/Ufność
 ├── pipeline.py               - glue: TimdrEngine, TimdrPacket, run_pipeline()
 ├── cascade.py                 - kaskada przepływu kapitału + samoucząca się waga (flow_intensity)
@@ -128,7 +129,7 @@ analizator-gieldowy-v3/
 ├── khipu_bottleneck.py       - opcjonalny modul KHIPU (domyslnie WYLACZONY, patrz nizej)
 ├── run.bat                   - instalacja zależności + testy + start serwera
 ├── requirements.txt
-└── test_*.py                 - 98 testów pytest (w tym test_api.py, test_khipu_bottleneck.py)
+└── test_*.py                 - 119 testów pytest (w tym test_api.py, test_khipu_bottleneck.py, test_ringdown.py)
 ```
 
 ## Endpointy API
@@ -229,12 +230,44 @@ nim oparte). Nie używać do regresji ceny/wolumenu/odległości.
 python -m pytest -q
 ```
 
-104/104 testy przechodzą (`timdr_core_finance`, `analizator_gieldowy`
-pośrednio przez `pipeline`, `pipeline`, `cascade`, `data_loader`, `state`,
-`api`, `khipu_bottleneck`). Wszystkie testy `data_loader`/`api` mockują
-`yfinance` (brak zależności od sieci przy testowaniu) - realne
-pobieranie danych giełdowych wymaga połączenia internetowego przy
-faktycznym uruchomieniu.
+119/119 testów przechodzi (`timdr_core_finance`, `ringdown`,
+`analizator_gieldowy` pośrednio przez `pipeline`, `pipeline`, `cascade`,
+`data_loader`, `state`, `api`, `khipu_bottleneck`). Wszystkie testy
+`data_loader`/`api` mockują `yfinance` (brak zależności od sieci przy
+testowaniu) - realne pobieranie danych giełdowych wymaga połączenia
+internetowego przy faktycznym uruchomieniu.
+
+## Rezonans w sensie fizycznym po skokach ceny (`ringdown.py`)
+
+`timdr_core_finance.py::resonance()` to licznik koincydencji (ile z
+trzech niezależnych sprawdzeń - anomalia/defekt/skręt - zgadza się naraz)
+- nazwa pożyczona z fizyki, ale mechanizm inny. `ringdown.py::ringdown_resonance()`
+liczy coś, co faktycznie odpowiada fizycznemu rezonansowi: dla każdego
+bloku zdarzeń z `defect()` (nagły skok ceny) sprawdza, czy powrót w
+stronę poziomu sprzed skoku jest OSCYLACYJNY (cena "przewahnęła" przez
+ten poziom w obie strony - typowy wzorzec overreaction + korekty/
+mean-reversion, czyli faktyczna synchronizacja z "otoczeniem"/poziomem
+sprzed zaburzenia) czy MONOTONICZNY (permanentna przecena/przewartościowanie
+- nowy poziom się utrzymuje, brak odbicia). Wynik trafia do
+`wynik["price_ringdown"]` (lista dictów: `event_idx`, `is_oscillatory`,
+`frequency_hz` [tu: cykle/bar, NIE Hz - patrz UWAGA w docstringu
+`ringdown.py`], `damping_ratio`, `n_crossings`, itd.) oraz
+`n_price_ringdown`/`n_price_ringdown_oscylacyjny`. W przeciwieństwie do
+integracji KHIPU wyżej, TO NIE JEST opcjonalna zależność - pola są zawsze
+obecne w wyniku (lista może być pusta, jeśli `defect()` nic nie znalazł).
+
+Port 1:1 matematyki z `jbackk-lang/universal-state-analyzer`
+(`timdr_core/ringdown.py`) - histereza Schmitta na wykrywaniu stanu (nie
+doklejona po fakcie do już policzonych szczytów - pierwsza próba tak
+zrobiona dawała regresję, patrz historia commitów tamtego repo),
+częstotliwość liczona z mediany (nie średniej) odstępów między
+przejściami. RÓŻNICA względem sieci energetycznej (TIMDR-Grid-Monitor):
+cena NIE MA stałego, fizycznego punktu odniesienia jak `f_nominal=50Hz`
+- `baseline` liczony jest tu domyślnie ze średniej okna PRZED zdarzeniem
+(`pre_event_window=min(event_idx, 20)`, dopasowane do domyślnego okna
+`defect()`), z ograniczonym zasięgiem analizy (`max_lookahead=40`), żeby
+nie złapać zupełnie innego, późniejszego skoku jako część tego samego
+"powrotu".
 
 ## Ograniczenia
 
@@ -250,3 +283,13 @@ faktycznym uruchomieniu.
   sufiksu tickera (konwencja Yahoo Finance), NIE dane pobrane z API -
   `yfinance.download()` nie zwraca metadanych instrumentu. Dla
   nietypowych tickerów domyślnie zakłada USD.
+- `ringdown_resonance()` (`ringdown.py`) zwalidowany wyłącznie na
+  syntetycznym, czystym modelu tłumionego oscylatora (patrz
+  universal-state-analyzer) - `noise_floor_factor=3.0`,
+  `pre_event_window=20` i `max_lookahead=40` to wartości ustalone ręcznie,
+  nieskalibrowane na realnych danych giełdowych. Interpretacja
+  "overreaction + korekta" jest jedną z możliwych narracji dla
+  oscylacyjnego powrotu ceny - metoda wykrywa WZORZEC (oscylacyjny vs
+  monotoniczny powrót), nie weryfikuje przyczyny; nie została
+  przetestowana pod kątem trafności predykcyjnej (czy oscylacyjny
+  ringdown faktycznie poprzedza dalszy ruch ceny w jakąś stronę).

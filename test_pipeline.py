@@ -67,6 +67,52 @@ def test_pipeline_dziala_na_minimalnej_liczbie_barow():
 
 
 # ---------------------------------------------------------------------
+# Rezonans w sensie fizycznym po skokach ceny (ringdown.py) - NIE to samo
+# co packet.resonance (licznik koincydencji, patrz timdr_core_finance.py).
+# W przeciwienstwie do bloku KHIPU nizej, ringdown NIE jest opcjonalna
+# zaleznoscia - packet.ringdown i wynik["price_ringdown"] sa zawsze obecne
+# (lista moze byc pusta, jesli defect() nie znalazl zadnych skokow).
+# ---------------------------------------------------------------------
+
+def test_packet_ma_ringdown_nawet_gdy_pusty():
+    ohlcv = _make_ohlcv(n=15)  # za krotkie/za lagodne dla defect()
+    engine = TimdrEngine(ohlcv)
+    packet = engine.compute_packet()
+    assert hasattr(packet, "ringdown")
+    assert isinstance(packet.ringdown.values, list)
+
+
+def test_wynik_ma_zawsze_klucze_ringdown():
+    ohlcv = _make_ohlcv()
+    wynik = run_pipeline(ohlcv)
+    for key in ("price_ringdown", "n_price_ringdown", "n_price_ringdown_oscylacyjny"):
+        assert key in wynik
+    assert wynik["n_price_ringdown"] == len(wynik["price_ringdown"])
+
+
+def test_ringdown_wykrywa_oscylacyjny_powrot_po_skoku_ceny():
+    """Skonstruowana cena: spokojny okres, potem skok w gore i tlumione
+    'dzwonienie' z powrotem w strone poziomu sprzed skoku (overreaction +
+    korekta) - defect() musi zlapac skok, a ringdown_resonance()
+    is_oscillatory=True dla tego zdarzenia."""
+    n = 400
+    rng = np.random.default_rng(7)
+    close = 100 + rng.normal(0, 0.05, n)
+    event_idx = 150
+    post = np.arange(n - event_idx, dtype=float)
+    close[event_idx:] = 100.0 + 8.0 * np.exp(-post / 25.0) * np.cos(2 * np.pi * 0.05 * post)
+    close[event_idx:] += rng.normal(0, 0.05, n - event_idx)
+    ohlcv = pd.DataFrame({
+        "open": close, "high": close * 1.002, "low": close * 0.998,
+        "close": close, "volume": np.full(n, 100000.0),
+    })
+    wynik = run_pipeline(ohlcv)
+    assert wynik["n_price_ringdown"] >= 1
+    assert wynik["n_price_ringdown_oscylacyjny"] >= 1
+    assert any(r["is_oscillatory"] for r in wynik["price_ringdown"])
+
+
+# ---------------------------------------------------------------------
 # Integracja opcjonalnego modulu KHIPU (khipu_bottleneck.py) - patrz tam
 # po pelny opis 6-krokowego planu integracji + alerty rozjazdu rezimu.
 # Testy wylaczone/wlaczone NIE zakladaja konkretnej wartosci domyslnej

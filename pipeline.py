@@ -23,6 +23,7 @@ from timdr_core_finance import (
     trm, flow, twist, rhythm,
     anomalies, defect, resonance
 )
+from ringdown import ringdown_resonance
 from analizator_gieldowy import AnalizatorGieldowy
 
 
@@ -57,6 +58,16 @@ class DefectSignal:
 
 
 class ResonanceSignal:
+    def __init__(self, values):
+        self.values = values
+
+
+class RingdownSignal:
+    """Wynik ringdown_resonance() (patrz ringdown.py) dla każdego bloku
+    zdarzeń z defect() - NIE to samo co ResonanceSignal (licznik
+    koincydencji) - to fizyczny rezonans: czy powrót ceny po skoku jest
+    oscylacyjny (overreaction + korekta) czy monotoniczny (trwała
+    przecena). `values` to lista dictów, patrz ringdown_resonance()."""
     def __init__(self, values):
         self.values = values
 
@@ -107,6 +118,7 @@ class TimdrPacket:
         resonance_signal,
         price_signal,
         khipu_regime_signal=None,
+        ringdown_signal=None,
     ):
         self.trm = trm_signal
         self.flow = flow_signal
@@ -116,6 +128,9 @@ class TimdrPacket:
         self.defect = defect_signal
         self.resonance = resonance_signal
         self.price = price_signal
+        # OPCJONALNE - None gdy brak zdarzeń defect() (nic do analizy
+        # ringdown) - patrz ringdown.py i TimdrEngine.compute_packet().
+        self.ringdown = ringdown_signal
         # OPCJONALNE (patrz khipu_bottleneck.py) - None dopóki
         # KHIPU_BOTTLENECK_ENABLED=False (domyślnie), więc istniejący
         # kod czytający TimdrPacket nie widzi żadnej zmiany.
@@ -142,6 +157,38 @@ class TimdrEngine:
         defect_idx = defect(price)
         resonance_score, resonance_strong_idx = resonance(price)
 
+        # Rezonans w sensie fizycznym (ringdown.py): dla każdego bloku
+        # zdarzeń z defect() (skok ceny), czy powrót w stronę poziomu
+        # sprzed skoku jest oscylacyjny (overreaction + korekta) czy
+        # monotoniczny (trwała przecena). Bloki = ciągłe grupy indeksów w
+        # defect_idx (te same, sąsiadujące skoki nie powinny dawać wielu
+        # nakładających się analiz tego samego zdarzenia - ten sam wzorzec
+        # co _detect_frequency_ringdown w TIMDR-Grid-Monitor).
+        # pre_event_window=20 dopasowane do window= domyślnego w defect();
+        # max_lookahead=40 (2x to okno) - świadomie ograniczone, żeby nie
+        # złapać zupełnie innego, późniejszego skoku jako część tego samego
+        # "powrotu"; wartość nie skalibrowana na realnych danych (patrz
+        # README, sekcja Ograniczenia).
+        ringdown_results = []
+        if len(defect_idx):
+            sorted_defects = sorted(set(int(i) for i in defect_idx))
+            blocks = [sorted_defects[0]]
+            prev = sorted_defects[0]
+            for i in sorted_defects[1:]:
+                if i != prev + 1:
+                    blocks.append(i)
+                prev = i
+            bar_idx = np.arange(len(price), dtype=float)
+            for event_idx in blocks:
+                if event_idx == 0:
+                    continue  # brak historii przed zdarzeniem - nie da się oszacować szumu
+                res = ringdown_resonance(
+                    bar_idx, price, event_idx,
+                    pre_event_window=min(event_idx, 20),
+                    max_lookahead=40,
+                )
+                ringdown_results.append({"event_idx": event_idx, **res})
+
         # OPCJONALNY sygnał KHIPU (krok integracji "features -> KHIPU
         # bottleneck -> dalsza logika TRM/FLOW/TWIST") - liczony TYLKO
         # gdy KHIPU_BOTTLENECK_ENABLED=True (domyślnie False, patrz
@@ -167,6 +214,7 @@ class TimdrEngine:
             resonance_signal=ResonanceSignal(resonance_score),
             price_signal=PriceSignal(price),
             khipu_regime_signal=khipu_regime_signal,
+            ringdown_signal=RingdownSignal(ringdown_results),
         )
 
 

@@ -290,6 +290,19 @@ class AnalizatorGieldowy:
             "x": price_like.tolist(),
         }
 
+        # Rezonans w sensie fizycznym po skokach ceny (ringdown.py) - NIE
+        # to samo co "resonance_last" wyżej (licznik koincydencji trzech
+        # niezależnych sprawdzeń). Zawsze obecne (lista może być pusta,
+        # jeśli nie było żadnych defektów) - w przeciwieństwie do bloku
+        # KHIPU niżej, to NIE jest opcjonalna zależność.
+        ringdown_events = getattr(packet, "ringdown", None)
+        ringdown_list = ringdown_events.values if ringdown_events is not None else []
+        result["price_ringdown"] = ringdown_list
+        result["n_price_ringdown"] = len(ringdown_list)
+        result["n_price_ringdown_oscylacyjny"] = sum(
+            1 for r in ringdown_list if r.get("is_oscillatory")
+        )
+
         # OPCJONALNE (patrz khipu_bottleneck.py/pipeline.py): obecne
         # TYLKO gdy KHIPU_BOTTLENECK_ENABLED=True - domyślnie
         # packet.khipu_regime jest None, więc ten blok się nie wykonuje
