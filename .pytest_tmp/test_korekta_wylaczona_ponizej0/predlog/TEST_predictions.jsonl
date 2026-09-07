@@ -1,0 +1,1 @@
+{"status": "confirmed", "bar_index": 0, "bar_timestamp": "t0", "direction": "up", "confidence": 0.8, "lead_time_bars": 1, "target_bar_index": 1, "realized_direction": "up", "realized_return": 0.05, "error": 0, "correct": true}

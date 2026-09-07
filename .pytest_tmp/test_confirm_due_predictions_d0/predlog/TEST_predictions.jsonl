@@ -1,0 +1,2 @@
+{"status": "confirmed", "bar_index": 0, "bar_timestamp": "t0", "direction": "up", "confidence": 0.8, "lead_time_bars": 5, "target_bar_index": 5, "realized_direction": "up", "realized_return": 0.05, "error": 0, "correct": true}
+{"status": "confirmed", "bar_index": 1, "bar_timestamp": "t1", "direction": "down", "confidence": 0.6, "lead_time_bars": 3, "target_bar_index": 4, "realized_direction": "up", "realized_return": 0.0297029702970297, "error": -2, "correct": false}
