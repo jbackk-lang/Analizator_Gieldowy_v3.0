@@ -230,9 +230,14 @@ nim oparte). Nie używać do regresji ceny/wolumenu/odległości.
 python -m pytest -q
 ```
 
-119/119 testów przechodzi (`timdr_core_finance`, `ringdown`,
+121/121 testów przechodzi (`timdr_core_finance`, `ringdown`,
 `analizator_gieldowy` pośrednio przez `pipeline`, `pipeline`, `cascade`,
-`data_loader`, `state`, `api`, `khipu_bottleneck`). Wszystkie testy
+`data_loader`, `state`, `api`, `khipu_bottleneck`,
+`test_selfbaseline_recovery` — czy `anomalies()`/`defect()` wracają do
+normy po ustaniu anomalii cenowej; tu bez nowego błędu, bo `defect()` już
+ma udokumentowaną poprawkę "Bug 1" powyżej — ten sam błąd, nieprzeniesiony,
+znaleziono przy tym samym teście w siostrzanym module
+`deliverable_timdr_finanse`). Wszystkie testy
 `data_loader`/`api` mockują `yfinance` (brak zależności od sieci przy
 testowaniu) - realne pobieranie danych giełdowych wymaga połączenia
 internetowego przy faktycznym uruchomieniu.
