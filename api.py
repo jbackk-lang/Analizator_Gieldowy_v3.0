@@ -42,10 +42,14 @@ from state import StateStore, PredictionLog
 
 # DODANE: integracja z TIMDR-META-DYNAMICS (meta-warstwa nad polem
 # Λ-τ-ρ-J, patrz meta_dynamics_module.py). Import odizolowany w
-# try/except - jesli folder-siostra TIMDR-META-DYNAMICS nie istnieje na
-# tej maszynie (np. sklonowano tylko to jedno repo), reszta API (dashboard,
-# /api/analyze, kaskada, samouczenie) dziala normalnie, tylko /api/meta
-# zwraca czytelny 501 zamiast wywalac caly proces na starcie.
+# try/except - ZWENDOROWANE 2026-09-10 (meta_dynamics_module.py uzywa
+# teraz lokalnej kopii _vendor_timdr_meta_dynamics_core.py zamiast
+# sibling-importu, patrz jej naglowek), wiec ten import w praktyce nie
+# powinien juz nigdy zawiesc - ale try/except zostaje jako obronna
+# warstwa (np. gdyby ktos usunal zwendorowany plik), zeby reszta API
+# (dashboard, /api/analyze, kaskada, samouczenie) dzialala normalnie, a
+# tylko /api/meta zwracalo czytelny 501 zamiast wywalac caly proces na
+# starcie.
 try:
     from meta_dynamics_module import analyze_ticker_meta
     _META_DYNAMICS_AVAILABLE = True

@@ -44,35 +44,19 @@ samej ceny/wolumenu.
 """
 from __future__ import annotations
 
-import os
-import sys
 from typing import List
 
 import numpy as np
 import pandas as pd
 
-
-def _ensure_timdr_meta_dynamics_on_path() -> None:
-    """Dodaje folder-siostre TIMDR-META-DYNAMICS do sys.path, jesli
-    jeszcze go tam nie ma. Zaklada uklad Downloads\\a\\analizator-gieldowy-v3
-    i Downloads\\a\\TIMDR-META-DYNAMICS jako katalogi na tym samym poziomie."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    sibling = os.path.join(here, "..", "TIMDR-META-DYNAMICS")
-    sibling = os.path.abspath(sibling)
-
-    if not os.path.isdir(sibling):
-        raise ImportError(
-            "meta_dynamics_module wymaga folderu 'TIMDR-META-DYNAMICS' jako "
-            f"sasiada tego repo (szukano w: {sibling}). Jesli lezy gdzie "
-            "indziej, popraw sciezke w _ensure_timdr_meta_dynamics_on_path()."
-        )
-    if sibling not in sys.path:
-        sys.path.insert(0, sibling)
-
-
-_ensure_timdr_meta_dynamics_on_path()
-
-from timdr_meta_dynamics import (  # noqa: E402  (import po sys.path.insert - celowo)
+# ZWENDOROWANE 2026-09-10 (patrz naglowek _vendor_timdr_meta_dynamics_core.py
+# w tym repo dla pelnego uzasadnienia): wczesniej ten modul ladowal
+# TIMDR-META-DYNAMICS przez sys.path sibling-import z folderu-siostry na
+# dysku. Zamienione na lokalna, zwendorowana kopie, zeby to repo dzialalo
+# samodzielnie po sklonowaniu WYLACZNIE siebie (decyzja na wyrazna prosbe:
+# "repozytoria kodu maja byc niezalezne od siebie"). Zachowanie/matematyka
+# bez zmian.
+from _vendor_timdr_meta_dynamics_core import (
     MetaState,
     MetaOperatorM,
     FieldEvolution,
@@ -80,7 +64,7 @@ from timdr_meta_dynamics import (  # noqa: E402  (import po sys.path.insert - ce
     MetaPredict,
 )
 
-from pipeline import TimdrEngine, TimdrPacket  # noqa: E402
+from pipeline import TimdrEngine, TimdrPacket
 
 
 def build_meta_states_from_packet(packet: TimdrPacket, volume: np.ndarray) -> List[MetaState]:
